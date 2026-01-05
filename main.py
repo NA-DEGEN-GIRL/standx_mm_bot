@@ -42,6 +42,7 @@ STANDX_KEY = SimpleNamespace(
     wallet_address=os.getenv("WALLET_ADDRESS"),
     chain='bsc',
     evm_private_key=os.getenv("PRIVATE_KEY"),
+    open_browser=True,
 )
 
 console = Console()
