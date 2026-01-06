@@ -301,6 +301,26 @@ class LiveOrderManager:
 
 # ==================== 유틸 함수 ====================
 
+async def staggered_gather(*coros, delay: float = 0.01):
+    """
+    coroutine들을 약간의 딜레이를 두고 시작하여 병렬 실행.
+    WS로 동시에 메시지가 몰리는 것을 방지.
+
+    Args:
+        *coros: 실행할 coroutine들
+        delay: 각 coroutine 시작 간격 (초)
+
+    Returns:
+        모든 coroutine의 결과 리스트
+    """
+    tasks = []
+    for i, coro in enumerate(coros):
+        if i > 0:
+            await asyncio.sleep(delay)
+        tasks.append(asyncio.create_task(coro))
+    return await asyncio.gather(*tasks)
+
+
 def calc_order_prices(mark_price: float, spread_bps: float) -> Tuple[float, float]:
     """
     mark_price 기준 ±spread_bps 위치의 주문 가격 계산
@@ -1036,7 +1056,7 @@ async def main():
                     elif has_orders and effective_drift > DRIFT_THRESHOLD and can_modify_orders:
                         order_mgr.rebalance()
                         # cancel_all은 캐시된 주문만 취소하므로 새 주문과 병렬 실행 가능
-                        _cancelled, buy_order, sell_order = await asyncio.gather(
+                        _cancelled, buy_order, sell_order = await staggered_gather(
                             order_mgr.cancel_all("Drift exceeded threshold"),
                             order_mgr.place_order("buy", buy_price, order_size, mark_price),
                             order_mgr.place_order("sell", sell_price, order_size, mark_price),
@@ -1047,7 +1067,7 @@ async def main():
 
                     # 주문이 없고 maker 조건 충족 - 신규 주문 (mid drift 안정 시에만)
                     elif not has_orders and buy_is_maker and sell_is_maker and not mid_unstable:
-                        buy_order, sell_order = await asyncio.gather(
+                        buy_order, sell_order = await staggered_gather(
                             order_mgr.place_order("buy", buy_price, order_size, mark_price),
                             order_mgr.place_order("sell", sell_price, order_size, mark_price),
                         )
