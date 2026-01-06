@@ -849,8 +849,6 @@ async def main():
         import time
         orders_exist_since: Optional[float] = None  # 주문이 존재하기 시작한 시점
         countdown = float(MIN_WAIT_SEC)
-        last_sync_time = time.time()
-        SYNC_INTERVAL = 5.0  # LIVE 모드에서 주문 동기화 간격
 
         # 연속 에러 추적
         consecutive_errors = 0
@@ -864,10 +862,9 @@ async def main():
                 try:
                     current_time = time.time()
 
-                    # ========== 0. LIVE 모드: 주기적 주문 동기화 ==========
-                    if is_live and (current_time - last_sync_time) >= SYNC_INTERVAL:
+                    # ========== 0. LIVE 모드: 매 iteration 주문 동기화 ==========
+                    if is_live:
                         await order_mgr.sync_orders()
-                        last_sync_time = current_time
 
                     # ========== 1. 실시간 데이터 fetch ==========
                     # mark_price 조회
@@ -911,7 +908,7 @@ async def main():
 
                     # ========== 포지션 자동 청산 ==========
                     if AUTO_CLOSE_POSITION and position and float(position.get("size", 0)) != 0:
-                        # 1. 모든 주문 취소
+                        # 1. 모든 주문 취소 (sync는 iteration 시작시 이미 완료)
                         await order_mgr.cancel_all("Position detected - auto close")
                         orders_exist_since = None
 
