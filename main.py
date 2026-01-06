@@ -301,7 +301,7 @@ class LiveOrderManager:
 
 # ==================== 유틸 함수 ====================
 
-async def staggered_gather(*coros, delay: float = 0.025):
+async def staggered_gather(*coros, delay: float = 0.01):
     """
     coroutine들을 약간의 딜레이를 두고 시작하여 병렬 실행.
     WS로 동시에 메시지가 몰리는 것을 방지.
