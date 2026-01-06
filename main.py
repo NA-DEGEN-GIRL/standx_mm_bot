@@ -301,7 +301,7 @@ class LiveOrderManager:
 
 # ==================== 유틸 함수 ====================
 
-async def staggered_gather(*coros, delay: float = 0.01):
+async def staggered_gather(*coros, delay: float = 0.025):
     """
     coroutine들을 약간의 딜레이를 두고 시작하여 병렬 실행.
     WS로 동시에 메시지가 몰리는 것을 방지.
@@ -1055,9 +1055,8 @@ async def main():
                     # 드리프트 체크 - 리밸런스 (MIN_WAIT_SEC 대기 후)
                     elif has_orders and effective_drift > DRIFT_THRESHOLD and can_modify_orders:
                         order_mgr.rebalance()
-                        # cancel_all은 캐시된 주문만 취소하므로 새 주문과 병렬 실행 가능
-                        _cancelled, buy_order, sell_order = await staggered_gather(
-                            order_mgr.cancel_all("Drift exceeded threshold"),
+                        await order_mgr.cancel_all("Drift exceeded threshold")
+                        buy_order, sell_order = await staggered_gather(
                             order_mgr.place_order("buy", buy_price, order_size, mark_price),
                             order_mgr.place_order("sell", sell_price, order_size, mark_price),
                         )
@@ -1137,11 +1136,11 @@ async def main():
     except KeyboardInterrupt:
         console.print("\n[yellow]Shutting down...[/yellow]")
     finally:
-        # 종료 전 모든 주문 취소
+        # 종료 전 모든 주문 취소 (캐시 무관하게 심볼 전체)
         if is_live:
             console.print("Cancelling all orders...")
             try:
-                await order_mgr.cancel_all("Shutdown")
+                await order_mgr.exchange.cancel_orders(symbol=order_mgr.symbol)
                 console.print("[green]All orders cancelled.[/green]")
             except Exception as e:
                 console.print(f"[red]Failed to cancel orders: {e}[/red]")
