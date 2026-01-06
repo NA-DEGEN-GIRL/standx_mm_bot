@@ -876,11 +876,23 @@ async def main():
         # 스냅샷 추적
         last_snapshot_time = 0.0
 
+        # collateral 관련 (REST API 사용 가능하므로 필요할 때만 갱신)
+        available_collateral = 0.0
+        total_collateral = 0.0
+        need_collateral_update = True  # 시작 시 + 청산 후에만 True
+
         # 메인 루프 (Live context로 flicker-free 업데이트)
         with Live(console=console, refresh_per_second=10, transient=True) as live:
             while True:
                 try:
                     current_time = time.time()
+
+                    # collateral 갱신 (시작 시 또는 청산 후)
+                    if need_collateral_update:
+                        need_collateral_update = False
+                        collateral = await exchange.get_collateral()
+                        available_collateral = float(collateral.get("available_collateral", 0))
+                        total_collateral = float(collateral.get("total_collateral", 0))
 
                     # ========== 0. LIVE 모드: 서버에서 주문 조회 ==========
                     if is_live:
@@ -916,10 +928,7 @@ async def main():
                     mid_price = (best_bid * best_bid_size + best_ask * best_ask_size) / total_size if total_size > 0 else (best_bid + best_ask) / 2
                     mid_diff_bps = abs((mid_price - mark_price) / mark_price * 10000) if mark_price > 0 else 0
 
-                    # collateral 조회 및 주문 수량 계산
-                    collateral = await exchange.get_collateral()
-                    available_collateral = float(collateral.get("available_collateral", 0))
-                    total_collateral = float(collateral.get("total_collateral", 0))
+                    
                     # total 기준으로 계산 (주문이 들어가도 일관된 크기 표시)
                     order_size = calc_order_size(total_collateral, mark_price)
 
@@ -975,6 +984,9 @@ async def main():
                         except Exception as e:
                             file_logger.info(f"POSITION CLOSE FAILED | {pos_side} {pos_size:.6f} BTC | uPnL: ${pos_pnl:+.2f} | Error: {e}")
                             console.print(f"[red]Failed to close position: {e}[/red]")
+
+                        # 다음 iteration에서 collateral 갱신
+                        need_collateral_update = True
 
                         await asyncio.sleep(REFRESH_INTERVAL)
                         continue
@@ -1059,6 +1071,7 @@ async def main():
                         drift_info = f"{drift_bps:.1f}+{mid_diff_bps:.1f}" if USE_MID_DRIFT else f"{drift_bps:.1f}"
                         last_action = f"Cancelled for rebalance (drift: {drift_info}bps)"
                         orders_exist_since = None
+                        await asyncio.sleep(REFRESH_INTERVAL)
                         continue  # 다음 iteration에서 fresh price로 신규 주문
 
                     # 주문이 없고 maker 조건 충족 - 신규 주문 (mid drift 안정 시에만)
