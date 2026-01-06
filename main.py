@@ -589,7 +589,7 @@ def build_dashboard(
     sell_is_maker: bool,
     drift_bps: float,
     status: str,
-    countdown: int,
+    countdown: float,
     spread_bps: float,
     order_mgr,  # SimOrderManager or LiveOrderManager
     available_collateral: float,
@@ -740,8 +740,9 @@ def build_dashboard(
     if last_action:
         table.add_row(Text(f"  Last: {last_action}", style="dim"), "")
 
-    if countdown > 0:
-        table.add_row(Text(f"  Next check in: {countdown}s", style="dim"), "")
+    if countdown > 0 and MIN_WAIT_SEC > 0:
+        countdown_str = f"{countdown:.1f}s" if countdown < 10 else f"{int(countdown)}s"
+        table.add_row(Text(f"  Next check in: {countdown_str}", style="dim"), "")
 
     table.add_row("", "")
 
@@ -847,7 +848,7 @@ async def main():
         # 주문 존재 시점 추적
         import time
         orders_exist_since: Optional[float] = None  # 주문이 존재하기 시작한 시점
-        countdown = int(MIN_WAIT_SEC)
+        countdown = float(MIN_WAIT_SEC)
         last_sync_time = time.time()
         SYNC_INTERVAL = 5.0  # LIVE 모드에서 주문 동기화 간격
 
@@ -1010,11 +1011,11 @@ async def main():
                         if orders_exist_since is None:
                             orders_exist_since = current_time  # 주문이 처음 감지됨
                         time_with_orders = current_time - orders_exist_since
-                        countdown = max(1, int(MIN_WAIT_SEC - time_with_orders) + 1)
+                        countdown = max(0.0, MIN_WAIT_SEC - time_with_orders)
                         can_modify_orders = time_with_orders >= MIN_WAIT_SEC
                     else:
                         orders_exist_since = None  # 주문 없으면 리셋
-                        countdown = 0
+                        countdown = 0.0
                         can_modify_orders = True  # 주문이 없으면 바로 새 주문 가능
 
                     # ========== 4. 주문 로직 ==========
