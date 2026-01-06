@@ -32,7 +32,7 @@ from exchange_factory import create_exchange, symbol_create
 from dotenv import load_dotenv
 from config import (
     MODE, EXCHANGE, COIN, AUTO_CONFIRM,
-    SPREAD_BPS, DRIFT_THRESHOLD, MID_DRIFT_THRESHOLD, MARK_MID_DIFF_LIMIT, MIN_WAIT_SEC, REFRESH_INTERVAL,
+    SPREAD_BPS, DRIFT_THRESHOLD, USE_MID_DRIFT, MARK_MID_DIFF_LIMIT, MIN_WAIT_SEC, REFRESH_INTERVAL,
     SIZE_UNIT, LEVERAGE, MAX_SIZE_BTC,
     MAX_HISTORY, MAX_CONSECUTIVE_ERRORS,
     AUTO_CLOSE_POSITION,
@@ -793,7 +793,8 @@ async def main():
     console.print(f"\n{'='*60}")
     console.print(f"  StandX Market Making Bot")
     console.print(f"  Mode: {mode_str}")
-    console.print(f"  Coin: {COIN}, Spread: {SPREAD_BPS}bps, Drift: {DRIFT_THRESHOLD}+{MID_DRIFT_THRESHOLD}bps, MarkMidLimit: {MARK_MID_DIFF_LIMIT}bps")
+    mid_drift_str = "+mid" if USE_MID_DRIFT else ""
+    console.print(f"  Coin: {COIN}, Spread: {SPREAD_BPS}bps, Drift: {DRIFT_THRESHOLD}bps{mid_drift_str}, MarkMidLimit: {MARK_MID_DIFF_LIMIT}bps")
     console.print(f"{'='*60}\n")
 
     # LIVE 모드 확인
@@ -985,9 +986,8 @@ async def main():
                         drift_bps = 0.0
 
                     # ========== 2. 상태 결정 ==========
-                    # combined drift = mark drift + mid drift (둘 다 고려)
-                    combined_drift = drift_bps + mid_diff_bps
-                    combined_threshold = DRIFT_THRESHOLD + MID_DRIFT_THRESHOLD
+                    # USE_MID_DRIFT가 True면 mark drift + mid drift 합산, False면 mark drift만
+                    effective_drift = (drift_bps + mid_diff_bps) if USE_MID_DRIFT else drift_bps
                     # mark-mid 차이가 너무 크면 주문 대기 (MARK_MID_DIFF_LIMIT > 0일 때만)
                     mid_unstable = MARK_MID_DIFF_LIMIT > 0 and mid_diff_bps > MARK_MID_DIFF_LIMIT
 
@@ -998,7 +998,7 @@ async def main():
                     elif mid_unstable and not has_orders:
                         status = "MID_WAIT"  # mid drift 안정화 대기
                     elif has_orders:
-                        if combined_drift > combined_threshold:
+                        if effective_drift > DRIFT_THRESHOLD:
                             status = "REBALANCING"
                         else:
                             status = "MONITORING"
@@ -1035,12 +1035,13 @@ async def main():
                             orders_exist_since = None
 
                     # 드리프트 체크 - 리밸런스 (MIN_WAIT_SEC 대기 후)
-                    elif has_orders and combined_drift > combined_threshold and can_modify_orders:
+                    elif has_orders and effective_drift > DRIFT_THRESHOLD and can_modify_orders:
                         await order_mgr.cancel_all("Drift exceeded threshold")
                         order_mgr.rebalance()
                         buy_order = await order_mgr.place_order("buy", buy_price, order_size, mark_price)
                         sell_order = await order_mgr.place_order("sell", sell_price, order_size, mark_price)
-                        last_action = f"Rebalanced @ {format_price(mark_price)} (drift: {drift_bps:.1f}+{mid_diff_bps:.1f}bps)"
+                        drift_info = f"{drift_bps:.1f}+{mid_diff_bps:.1f}" if USE_MID_DRIFT else f"{drift_bps:.1f}"
+                        last_action = f"Rebalanced @ {format_price(mark_price)} (drift: {drift_info}bps)"
                         orders_exist_since = current_time  # 새 주문이니 타이머 리셋
 
                     # 주문이 없고 maker 조건 충족 - 신규 주문 (mid drift 안정 시에만)

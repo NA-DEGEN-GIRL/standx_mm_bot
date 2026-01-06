@@ -163,28 +163,29 @@ DRIFT_THRESHOLD = 3.0   # 가격이 0.03% 움직이면 주문 재배치
 
 ---
 
-### 5. MID_DRIFT_THRESHOLD - 주문 취소 조건 강화
+### 5. USE_MID_DRIFT - mid price 변동도 고려할지
 
 ```python
-MID_DRIFT_THRESHOLD = 0.0   # 기본값 (사용 안 함)
-MID_DRIFT_THRESHOLD = 1.0   # mid price drift도 고려
+USE_MID_DRIFT = False   # mark price만 보고 취소 결정
+USE_MID_DRIFT = True    # mark price + mid price 둘 다 보고 결정
 ```
 
 **쉽게 설명:**
-- 주문 취소 조건을 더 엄격하게 만들고 싶을 때 사용
-- 기존: mark price만 보고 취소 결정
-- 이 값 > 0: mark price + mid price 둘 다 보고 결정
+- Mark Price: 거래소가 계산한 "공정 가격"
+- Mid Price: 실제 호가창의 중간 가격 (매수/매도 수량 가중 평균)
+- `True`로 설정하면 두 가격 변동을 합산해서 더 민감하게 반응
 
 **취소 조건:**
 ```
-(mark drift) + (mid drift) > DRIFT_THRESHOLD + MID_DRIFT_THRESHOLD
+False일 때: (mark drift) > DRIFT_THRESHOLD
+True일 때:  (mark drift) + (mid drift) > DRIFT_THRESHOLD
 ```
 
-**예시:** `DRIFT_THRESHOLD=3`, `MID_DRIFT_THRESHOLD=1`이면
-- mark drift 2bps + mid drift 2.5bps = 4.5bps
-- 4.5 > 4 (3+1) 이므로 → 주문 취소 후 재배치
+**예시:** `DRIFT_THRESHOLD=3`, `USE_MID_DRIFT=True`이면
+- mark drift 2bps + mid drift 1.5bps = 3.5bps
+- 3.5 > 3 이므로 → 주문 취소 후 재배치
 
-추천: 처음엔 **0** (사용 안 함), 익숙해지면 조절
+추천: 처음엔 **False** (mark만), 더 민감하게 대응하고 싶으면 **True**
 
 ---
 
