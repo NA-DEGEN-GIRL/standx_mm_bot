@@ -591,6 +591,7 @@ def build_dashboard(
     spread_bps: float,
     order_mgr,  # SimOrderManager or LiveOrderManager
     available_collateral: float,
+    total_collateral: float,
     order_size: float,
     position: Optional[Dict[str, Any]],
     pos_stats: Dict[str, Any],
@@ -627,7 +628,7 @@ def build_dashboard(
     # -- ACCOUNT Section --
     table.add_row(Text("▌ ACCOUNT", style="bold cyan"), "")
     table.add_row(
-        Text(f"  Available: ${available_collateral:,.2f}", style="green"),
+        Text(f"  Total: ${total_collateral:,.2f}  Available: ${available_collateral:,.2f}", style="green"),
         Text(f"  Order Size: {order_size:.4f} {COIN} (${order_value:,.2f}) x{LEVERAGE:.0f}", style="bold")
     )
 
@@ -885,6 +886,7 @@ async def main():
                     # collateral 조회 및 주문 수량 계산
                     collateral = await exchange.get_collateral()
                     available_collateral = float(collateral.get("available_collateral", 0))
+                    total_collateral = float(collateral.get("total_collateral", 0))
                     order_size = calc_order_size(available_collateral, mark_price)
 
                     # position 조회
@@ -1039,6 +1041,7 @@ async def main():
                         spread_bps=ob_spread_bps,
                         order_mgr=order_mgr,
                         available_collateral=available_collateral,
+                        total_collateral=total_collateral,
                         order_size=order_size,
                         position=position,
                         pos_stats=position_stats,
@@ -1055,7 +1058,7 @@ async def main():
                             with open(SNAPSHOT_FILE, "w", encoding="utf-8") as f:
                                 f.write(f"[{MODE}] {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
                                 f.write(f"Mark: {mark_price:,.2f} | Spread: {ob_spread_bps:.1f}bps\n")
-                                f.write(f"Collateral: ${available_collateral:,.2f} | Size: {order_size:.4f} BTC\n")
+                                f.write(f"Total: ${total_collateral:,.2f} | Available: ${available_collateral:,.2f} | Size: {order_size:.4f} BTC\n")
                                 if buy_order:
                                     f.write(f"BUY:  {buy_order.price:,.2f} ({buy_order.status})\n")
                                 if sell_order:
