@@ -93,6 +93,53 @@ python main.py
 
 ---
 
+## 프로그램 업데이트 방법
+
+봇이 업데이트되면 새 기능이나 버그 수정이 포함됩니다. 업데이트하는 방법은 2가지입니다.
+
+**GitHub 주소:** https://github.com/NA-DEGEN-GIRL/standx_mm_bot
+
+### 방법 1: Git 사용 (추천)
+
+처음에 Git으로 설치했다면 이 방법이 제일 쉽습니다.
+
+```bash
+# 1. 프로젝트 폴더로 이동
+cd standx_mm_bot
+
+# 2. 최신 버전 받아오기
+git pull
+
+# 3. 의존성 업데이트 (중요!)
+pip install -r requirements.in
+```
+
+> **주의**: `config.py`와 `.env` 파일은 `.gitignore`에 있어서 덮어쓰지 않습니다. 내 설정은 그대로 유지됩니다!
+
+### 방법 2: 수동 다운로드 (Git 안 쓰는 경우)
+
+1. GitHub에서 **Code** → **Download ZIP** 클릭
+2. 압축 풀기
+3. 기존 폴더에 덮어쓰기
+   - **주의**: `config.py`와 `.env` 파일은 덮어쓰지 마세요! (내 설정이 날아갑니다)
+4. 의존성 업데이트:
+   ```bash
+   pip install -r requirements.in
+   ```
+
+### 의존성 업데이트가 중요한 이유
+
+이 봇은 `mpdex`라는 거래소 연결 라이브러리를 사용합니다.
+`mpdex`가 자주 업데이트되기 때문에 봇 업데이트 후 반드시 아래 명령어를 실행하세요:
+
+```bash
+pip install -r requirements.in
+```
+
+안 하면 "ModuleNotFoundError"나 이상한 에러가 날 수 있어요!
+
+---
+
 ## 설정 방법 (config.py) - 완전 초보자용 가이드
 
 `config.py` 파일을 메모장이나 VS Code로 열어서 수정하면 됩니다.
