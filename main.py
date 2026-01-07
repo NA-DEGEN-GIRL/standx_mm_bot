@@ -873,6 +873,11 @@ async def main():
     exchange = await create_exchange(EXCHANGE, STANDX_KEY)
     symbol = symbol_create(EXCHANGE, COIN)
     console.print(f"Symbol: {symbol}")
+    try:
+        res = await exchange.update_leverage(symbol)
+        console.print(f"Updated to max leverage! {res}")
+    except Exception as e:
+        console.print(f"Failed to update to max leverage.")
 
     # Create order manager (based on mode)
     if is_live:
