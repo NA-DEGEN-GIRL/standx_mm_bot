@@ -87,8 +87,8 @@ class SimOrder:
     status: str = "open"  # "open", "filled", "cancelled"
     placed_at: datetime = field(default_factory=datetime.now)
     reference_price: float = 0.0  # mark_price at order placement
-
-
+    message: str = ""
+    
 class SimOrderManager:
     """Simulation order manager"""
 
@@ -114,7 +114,8 @@ class SimOrderManager:
             side=side,
             price=price,
             size=size,
-            reference_price=reference_price
+            reference_price=reference_price,
+            message="success"
         )
         self.orders[order_id] = order
         self.total_placed += 1
@@ -205,7 +206,8 @@ class LiveOrderManager:
                 amount=size,
                 price=price,
                 order_type="limit",
-                client_order_id=cl_ord_id
+                client_order_id=cl_ord_id,
+                skip_rest=True
             )
 
             code = result.get("code")
@@ -220,13 +222,15 @@ class LiveOrderManager:
                     "price": price,
                     "time": datetime.now()
                 })
+                message = result.get("message")
                 # Return SimOrder (for compatibility)
                 return SimOrder(
                     id=cl_ord_id,
                     side=side,
                     price=price,
                     size=size,
-                    reference_price=reference_price
+                    reference_price=reference_price,
+                    message=message
                 )
             else:
                 console.print(f"[red]Order rejected: {result}[/red]")
@@ -1104,7 +1108,7 @@ async def main():
                             order_mgr.place_order("sell", sell_price, order_size, mark_price),
                         )
                         # {'code': 0, 'message': 'success', 'request_id': '....'}
-                        has_orders = buy_order.get('message','fail') == 'success' or sell_order.get('message','fail') == 'success'
+                        has_orders = buy_order.message == 'success' and sell_order.message == 'success'
                         last_action = f"Placed BUY @ {format_price(buy_price)}, SELL @ {format_price(sell_price)}"
                         orders_exist_since = time.time()  # 타이머 시작
 
