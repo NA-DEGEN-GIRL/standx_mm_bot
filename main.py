@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """
-StandX Market Making Simulator (Test Mode)
-===========================================
-mark_price 기준 ±8bps에 양방향 limit order를 시뮬레이션.
-실제 주문 없이 가격과 maker/taker 상태를 실시간 모니터링.
+StandX Market Making Bot
+========================
+Simulates bidirectional limit orders at ±bps from mark_price.
+Real-time monitoring of price and maker/taker status.
 
 Usage:
     python main.py

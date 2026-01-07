@@ -1,54 +1,54 @@
 """
-StandX MM Bot 설정 파일
+StandX MM Bot Configuration
 """
 
-# 모드 설정
-MODE = "LIVE"           # "TEST" = 시뮬레이션, "LIVE" = 실제 주문
+# Mode Settings
+MODE = "LIVE"           # "TEST" = simulation, "LIVE" = real orders
 EXCHANGE = "standx"
 COIN = "BTC"
-AUTO_CONFIRM = True    # True: LIVE 모드 YES 확인 생략
+AUTO_CONFIRM = True    # True: skip YES confirmation for LIVE mode
 
-# 주문 설정
-SPREAD_BPS = 6.5        # 주문 스프레드 (bps)
-DRIFT_THRESHOLD = 3.5   # 재주문 트리거 (bps)
-USE_MID_DRIFT = True    # True: mark drift + mid drift 합산, False: mark drift만 고려
-MARK_MID_DIFF_LIMIT = 1.0  # mark-mid 차이가 이 값(bps) 초과시 주문 대기 (0이면 비활성화)
-MID_UNSTABLE_COOLDOWN = 0  # mid unstable 이후 추가 대기 시간 (초), 0이면 즉시 주문
-MIN_WAIT_SEC = 0.1      # 주문 변경 최소 대기 시간 (초)
-REFRESH_INTERVAL = 0.05 # 화면 갱신 간격 (초)
-CANCEL_AFTER_DELAY = 0.1 # 주문 취소후 딜레이 대기
+# Order Settings
+SPREAD_BPS = 6.5        # Order spread (bps)
+DRIFT_THRESHOLD = 3.5   # Rebalance trigger (bps)
+USE_MID_DRIFT = True    # True: mark drift + mid drift combined, False: mark drift only
+MARK_MID_DIFF_LIMIT = 1.0  # Wait if mark-mid diff exceeds this (bps), 0 to disable
+MID_UNSTABLE_COOLDOWN = 0  # Extra wait after mid unstable (sec), 0 for immediate
+MIN_WAIT_SEC = 0.1      # Minimum wait before order modification (sec)
+REFRESH_INTERVAL = 0.05 # Screen refresh interval (sec)
+CANCEL_AFTER_DELAY = 0.5 # Delay after order cancellation (sec)
 
-# 수량 설정
-SIZE_UNIT = 0.0001      # 주문 수량 단위 (BTC)
-LEVERAGE = 30            # 레버리지 배수 (양방향이므로 실제 각 3배)
-MAX_SIZE_BTC = 2.0   # 최대 주문 수량 (None = 무제한)
+# Size Settings
+SIZE_UNIT = 0.0001      # Order size unit (BTC)
+LEVERAGE = 30           # Leverage multiplier (bidirectional, so each side is 1/2)
+MAX_SIZE_BTC = 2.0      # Max order size (None = unlimited)
 
-# 안정성 설정
-MAX_HISTORY = 1000              # 주문 히스토리 최대 보관 개수
-MAX_CONSECUTIVE_ERRORS = 10     # 연속 에러 허용 횟수
+# Stability Settings
+MAX_HISTORY = 1000              # Max order history to keep
+MAX_CONSECUTIVE_ERRORS = 10     # Max consecutive errors allowed
 
-# 포지션 자동 청산
-AUTO_CLOSE_POSITION = True      # True: 포지션 생기면 자동 청산 후 MM 재개
+# Auto Position Close
+AUTO_CLOSE_POSITION = True      # True: auto close position and resume MM
 
-# 청산 방식: "market" | "aggressive" | "chase"
-# - market: 즉시 시장가 청산 (기존 동작)
-# - aggressive: mark price 기준 지정가 (빠른 체결 유도)
-# - chase: 호가창 최우선가 지정가
+# Close Method: "market" | "aggressive" | "chase"
+# - market: immediate market close
+# - aggressive: limit order at mark price (faster fill)
+# - chase: limit order at best bid/ask
 CLOSE_METHOD = "aggressive"
 
-# aggressive 모드 설정
-CLOSE_AGGRESSIVE_BPS = 0      # mark price에서 떨어진 bps
+# Aggressive Mode Settings
+CLOSE_AGGRESSIVE_BPS = 0      # BPS offset from mark price
 
-# aggressive/chase 공통 설정
-CLOSE_WAIT_SEC = 5.0            # 주문 후 대기 시간 (초)
-CLOSE_MIN_SIZE_MARKET = 0.01  # 이 수량 미만이면 시장가 청산
+# Aggressive/Chase Common Settings
+CLOSE_WAIT_SEC = 5.0            # Wait time after order (sec)
+CLOSE_MIN_SIZE_MARKET = 0.01    # Market close if size below this
 
-# 안전 제한
-CLOSE_MAX_ITERATIONS = 20      # 최대 반복 횟수 (초과시 시장가)
+# Safety Limits
+CLOSE_MAX_ITERATIONS = 20      # Max iterations (market fallback if exceeded)
 
-# 스냅샷 설정 (tmux 없이 상태 확인용)
-SNAPSHOT_INTERVAL = 60         # 스냅샷 저장 간격 (초), 0이면 비활성화
-SNAPSHOT_FILE = "status.txt"   # 스냅샷 파일명
+# Snapshot Settings (for status check without tmux)
+SNAPSHOT_INTERVAL = 60         # Snapshot save interval (sec), 0 to disable
+SNAPSHOT_FILE = "status.txt"   # Snapshot filename
 
-# 자동 재시작
-RESTART_INTERVAL = 0           # 프로그램 자동 재시작 주기 (초), 0이면 비활성화
+# Auto Restart
+RESTART_INTERVAL = 3600        # Auto restart interval (sec), 0 to disable
