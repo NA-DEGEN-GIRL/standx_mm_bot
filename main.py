@@ -221,8 +221,10 @@ class LiveOrderManager:
                 client_order_id=cl_ord_id,
                 skip_rest=True
             )
-
-            code = result.get("code", None)
+            if result:
+                code = result.get("code", None)
+            else:
+                code = None
             if code == 0:
                 # Store reference_price (for drift calculation)
                 self.reference_prices[side] = reference_price
