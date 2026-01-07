@@ -41,7 +41,7 @@ from config import (
     CLOSE_METHOD, CLOSE_AGGRESSIVE_BPS, CLOSE_WAIT_SEC,
     CLOSE_MIN_SIZE_MARKET, CLOSE_MAX_ITERATIONS,
     SNAPSHOT_INTERVAL, SNAPSHOT_FILE, CANCEL_AFTER_DELAY,
-    RESTART_INTERVAL, RESTART_DELAY,
+    RESTART_INTERVAL, RESTART_DELAY, MAX_WS_FALLBACK,
 )
 
 load_dotenv()
@@ -58,32 +58,15 @@ file_handler.setFormatter(logging.Formatter("%(asctime)s | %(message)s", datefmt
 file_logger.addHandler(file_handler)
 
 
-class TeeWriter:
-    """Write to both terminal and log file simultaneously"""
-    def __init__(self, original_stream, log_file_path: str):
-        self.original = original_stream
-        self.log_file = open(log_file_path, "w", encoding="utf-8")  # 'w' clears on startup
-
-    def write(self, message):
-        self.original.write(message)
-        if message.strip():  # Skip empty lines
-            # Add timestamp for non-empty messages
-            timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            self.log_file.write(f"[{timestamp}] {message}")
-            if not message.endswith('\n'):
-                self.log_file.write('\n')
-            self.log_file.flush()
-
-    def flush(self):
-        self.original.flush()
-        self.log_file.flush()
-
-    def close(self):
-        self.log_file.close()
+# Console log file (cleared on startup)
+_console_log_file = open(CONSOLE_LOG_FILE, "w", encoding="utf-8")
 
 
-# Redirect stdout to capture print statements from mpdex and other libraries
-sys.stdout = TeeWriter(sys.__stdout__, CONSOLE_LOG_FILE)
+def log_message(message: str) -> None:
+    """Log message to console_log.txt with timestamp"""
+    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    _console_log_file.write(f"[{timestamp}] {message}\n")
+    _console_log_file.flush()
 
 STANDX_KEY = SimpleNamespace(
     wallet_address=os.getenv("WALLET_ADDRESS"),
@@ -92,7 +75,7 @@ STANDX_KEY = SimpleNamespace(
     open_browser=True,
 )
 
-console = Console(file=sys.stdout, force_terminal=True)  # Use TeeWriter for logging
+console = Console()
 
 # ==================== Position Statistics ====================
 position_stats = {
@@ -858,6 +841,9 @@ async def main():
     is_live = MODE == "LIVE"
     mode_str = "[red]LIVE[/red]" if is_live else "[cyan]TEST[/cyan]"
 
+    # Log startup
+    log_message(f"Bot started | Mode: {MODE} | Coin: {COIN} | Spread: {SPREAD_BPS}bps | Drift: {DRIFT_THRESHOLD}bps")
+
     console.print(f"\n{'='*60}")
     console.print(f"  StandX Market Making Bot")
     console.print(f"  Mode: {mode_str}")
@@ -939,8 +925,9 @@ async def main():
                 try:
                     current_time = time.time()
 
-                    # Auto restart check
+                    # Auto restart check (time-based)
                     if RESTART_INTERVAL > 0 and (current_time - start_time) >= RESTART_INTERVAL:
+                        log_message(f"AUTO RESTART | Interval: {RESTART_INTERVAL}s")
                         console.print(f"\n[yellow]Restarting after {RESTART_INTERVAL}s...[/yellow]")
                         if is_live:
                             await order_mgr.exchange.cancel_orders(symbol=order_mgr.symbol)
@@ -948,6 +935,22 @@ async def main():
                             await asyncio.sleep(RESTART_DELAY)
                         file_logger.info(f"AUTO RESTART | Interval: {RESTART_INTERVAL}s")
                         os.execv(sys.executable, [sys.executable] + sys.argv)
+
+                    # WS fallback check (force restart if too many REST fallbacks)
+                    if MAX_WS_FALLBACK > 0:
+                        fallback_stats = exchange.get_fallback_stats()
+                        ws_total = fallback_stats.get("ws_client", {}).get("total", 0)
+                        order_ws_total = fallback_stats.get("order_ws_client", {}).get("total", 0)
+                        if ws_total >= MAX_WS_FALLBACK or order_ws_total >= MAX_WS_FALLBACK:
+                            log_message(f"FORCE RESTART | WS fallback exceeded (ws: {ws_total}, order_ws: {order_ws_total})")
+                            console.print(f"\n[red]WS fallback limit exceeded (ws: {ws_total}, order_ws: {order_ws_total})[/red]")
+                            console.print("[yellow]Force restarting to restore WS connection...[/yellow]")
+                            if is_live:
+                                await order_mgr.exchange.cancel_orders(symbol=order_mgr.symbol)
+                                console.print(f"[green]All orders cancelled before restart...{RESTART_DELAY}s remains.[/green]")
+                                await asyncio.sleep(RESTART_DELAY)
+                            file_logger.info(f"FORCE RESTART | WS fallback exceeded (ws: {ws_total}, order_ws: {order_ws_total})")
+                            os.execv(sys.executable, [sys.executable] + sys.argv)
 
                     # Collateral refresh (on start or after close)
                     if need_collateral_update:
@@ -1010,6 +1013,7 @@ async def main():
                         pos_pnl = float(position.get("unrealized_pnl", 0))
 
                         # Log: Position detected
+                        log_message(f"POSITION DETECTED | {pos_side} {pos_size:.6f} BTC @ {pos_entry:.2f} | uPnL: ${pos_pnl:+.2f}")
                         file_logger.info(f"POSITION DETECTED | {pos_side} {pos_size:.6f} BTC @ {pos_entry:.2f} | uPnL: ${pos_pnl:+.2f}")
                         console.print(f"[yellow]Auto-closing {pos_side} {pos_size:.4f} via {CLOSE_METHOD} (uPnL: ${pos_pnl:+.2f})...[/yellow]")
 
@@ -1034,16 +1038,20 @@ async def main():
                             position_stats["total_close_time"] += elapsed_time
 
                             # Log: Position closed
-                            file_logger.info(
+                            close_msg = (
                                 f"POSITION CLOSED  | {pos_side} {pos_size:.6f} BTC | PnL: ${pos_pnl:+.2f} | "
-                                f"Method: {CLOSE_METHOD} | Time: {elapsed_time:.2f}s ({iterations} iter) | "
-                                f"Total: {position_stats['total_closes']} closes, "
+                                f"Method: {CLOSE_METHOD} | Time: {elapsed_time:.2f}s ({iterations} iter)"
+                            )
+                            log_message(close_msg)
+                            file_logger.info(
+                                f"{close_msg} | Total: {position_stats['total_closes']} closes, "
                                 f"{position_stats['total_volume']:.6f} BTC, ${position_stats['total_pnl']:+.2f}"
                             )
 
                             last_action = f"Closed {pos_side} {pos_size:.4f} via {CLOSE_METHOD} ({elapsed_time:.1f}s, ${pos_pnl:+.2f})"
                             console.print(f"[green]{close_log} (PnL: ${pos_pnl:+.2f})[/green]")
                         except Exception as e:
+                            log_message(f"POSITION CLOSE FAILED | {pos_side} {pos_size:.6f} BTC | Error: {e}")
                             file_logger.info(f"POSITION CLOSE FAILED | {pos_side} {pos_size:.6f} BTC | uPnL: ${pos_pnl:+.2f} | Error: {e}")
                             console.print(f"[red]Failed to close position: {e}[/red]")
 
@@ -1193,9 +1201,11 @@ async def main():
                 except Exception as e:
                     consecutive_errors += 1
                     backoff = min(consecutive_errors * 0.5, 10.0)  # Max 10 seconds
+                    log_message(f"ERROR [{consecutive_errors}/{MAX_CONSECUTIVE_ERRORS}] {e}")
                     console.print(f"[red][Error {consecutive_errors}/{MAX_CONSECUTIVE_ERRORS}] {e}[/red]")
 
                     if consecutive_errors >= MAX_CONSECUTIVE_ERRORS:
+                        log_message("Too many consecutive errors, exiting...")
                         console.print("[red]Too many consecutive errors, exiting...[/red]")
                         break
 
@@ -1228,10 +1238,10 @@ async def main():
         console.print("Closing exchange connection...")
         await exchange.close()
         console.print("Done.")
+        log_message("Bot stopped")
 
         # Close console log file
-        if hasattr(sys.stdout, 'close'):
-            sys.stdout.close()
+        _console_log_file.close()
 
 
 if __name__ == "__main__":
@@ -1241,5 +1251,5 @@ if __name__ == "__main__":
         pass
     finally:
         # Ensure log file is closed on exit
-        if hasattr(sys.stdout, 'close'):
-            sys.stdout.close()
+        if not _console_log_file.closed:
+            _console_log_file.close()

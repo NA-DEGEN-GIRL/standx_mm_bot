@@ -1,0 +1,8 @@
+[2026-01-07 19:52:59] Bot started | Mode: LIVE | Coin: BTC | Spread: 7.0bps | Drift: 2.5bps
+[2026-01-07 19:53:06] ERROR [1/10] 'StandXExchange' object has no attribute 'get_fallback_stats'
+[2026-01-07 19:53:06] ERROR [2/10] 'StandXExchange' object has no attribute 'get_fallback_stats'
+[2026-01-07 19:53:07] ERROR [3/10] 'StandXExchange' object has no attribute 'get_fallback_stats'
+[2026-01-07 19:53:09] ERROR [4/10] 'StandXExchange' object has no attribute 'get_fallback_stats'
+[2026-01-07 19:53:11] ERROR [5/10] 'StandXExchange' object has no attribute 'get_fallback_stats'
+[2026-01-07 19:53:13] ERROR [6/10] 'StandXExchange' object has no attribute 'get_fallback_stats'
+[2026-01-07 19:53:16] Bot stopped

@@ -311,6 +311,19 @@ Recommended: **5-10**
 
 ---
 
+### 13-2. MAX_WS_FALLBACK - Force Restart on WS Issues
+
+```python
+MAX_WS_FALLBACK = 0    # Disabled
+MAX_WS_FALLBACK = 10   # Force restart after 10 REST API fallbacks (default)
+```
+
+When WebSocket connection has issues, the bot falls back to REST API. If fallback count exceeds this limit, the bot force restarts to restore WS connection.
+
+Recommended: **10-20** or **0** (disabled)
+
+---
+
 ## Recommended Settings for Beginners
 
 ```python
@@ -696,6 +709,19 @@ LIVE 모드에서는 재시작 전에 모든 주문을 취소해요. 이 대기 
 
 ---
 
+### 13-2. MAX_WS_FALLBACK - WS 장애시 강제 재시작
+
+```python
+MAX_WS_FALLBACK = 0    # 비활성화
+MAX_WS_FALLBACK = 10   # REST API fallback 10회 초과시 강제 재시작 (기본값)
+```
+
+WebSocket 연결에 문제가 생기면 REST API로 대체 요청을 해요. 이 횟수가 설정값을 초과하면 WS 연결을 복구하기 위해 강제 재시작합니다.
+
+추천: **10~20** 또는 **0** (비활성화)
+
+---
+
 ## 처음 시작하는 사람을 위한 추천 설정
 
 ```python
@@ -1078,6 +1104,19 @@ RESTART_DELAY = 10   # 重启前等待10秒（默认）
 在LIVE模式下，重启前会取消所有订单。此延迟确保交易所有足够时间处理取消操作。
 
 推荐：**5-10**
+
+---
+
+### 13-2. MAX_WS_FALLBACK - WS故障时强制重启
+
+```python
+MAX_WS_FALLBACK = 0    # 禁用
+MAX_WS_FALLBACK = 10   # REST API fallback超过10次后强制重启（默认）
+```
+
+当WebSocket连接出现问题时，机器人会使用REST API作为备用。如果fallback次数超过此限制，将强制重启以恢复WS连接。
+
+推荐：**10-20** 或 **0**（禁用）
 
 ---
 
