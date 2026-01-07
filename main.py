@@ -1144,10 +1144,11 @@ async def main():
                             order_mgr.place_order("buy", buy_price, order_size, mark_price),
                             order_mgr.place_order("sell", sell_price, order_size, mark_price),
                         )
-                        # {'code': 0, 'message': 'success', 'request_id': '....'}
-                        has_orders = buy_order.message == 'success' and sell_order.message == 'success'
-                        last_action = f"Placed BUY @ {format_price(buy_price)}, SELL @ {format_price(sell_price)}"
-                        orders_exist_since = time.time()  # Start timer
+                        if buy_order and sell_order:
+                            # {'code': 0, 'message': 'success', 'request_id': '....'}
+                            has_orders = buy_order.message == 'success' and sell_order.message == 'success'
+                            last_action = f"Placed BUY @ {format_price(buy_price)}, SELL @ {format_price(sell_price)}"
+                            orders_exist_since = time.time()  # Start timer
 
                     # ========== 5. Display Dashboard ==========
                     dashboard = build_dashboard(
