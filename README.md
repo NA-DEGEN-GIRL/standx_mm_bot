@@ -369,6 +369,19 @@ Press `Ctrl+C` to stop. In LIVE mode, all orders are automatically cancelled.
 - LIVE mode uses real money
 - Orders won't be created if collateral is insufficient
 
+### About "REST API skipped" Message
+
+You may occasionally see this message:
+```
+REST API skipped on. No order at this moment
+```
+or
+```
+[StandXExchange] create_order WS failed: balance not enough
+```
+
+**This is normal and not a cause for concern.** This happens when orders are placed immediately after cancellation, and the StandX server hasn't updated the balance yet. The bot will automatically retry on the next cycle.
+
 ---
 
 <a name="한국어"></a>
@@ -727,6 +740,19 @@ python main.py
 - **처음에는 반드시 `MODE = "TEST"`로 테스트하세요!**
 - LIVE 모드는 실제 돈이 사용됩니다
 - 담보금이 부족하면 주문이 생성되지 않습니다
+
+### "REST API skipped" 메시지에 대해
+
+가끔 이런 메시지가 보일 수 있습니다:
+```
+REST API skipped on. No order at this moment
+```
+또는
+```
+[StandXExchange] create_order WS failed: balance not enough
+```
+
+**이것은 정상이며 걱정할 필요 없습니다.** 주문 취소 직후 바로 새 주문이 들어갈 때 StandX 서버에서 아직 잔고가 업데이트되지 않아서 발생합니다. 봇이 다음 사이클에서 자동으로 다시 시도합니다.
 
 ---
 
