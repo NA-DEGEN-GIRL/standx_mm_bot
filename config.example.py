@@ -48,3 +48,6 @@ CLOSE_MAX_ITERATIONS = 20      # 최대 반복 횟수 (초과시 시장가)
 # 스냅샷 설정 (tmux 없이 상태 확인용)
 SNAPSHOT_INTERVAL = 60         # 스냅샷 저장 간격 (초), 0이면 비활성화
 SNAPSHOT_FILE = "status.txt"   # 스냅샷 파일명
+
+# 자동 재시작
+RESTART_INTERVAL = 0           # 프로그램 자동 재시작 주기 (초), 0이면 비활성화

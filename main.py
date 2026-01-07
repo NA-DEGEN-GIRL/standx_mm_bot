@@ -39,7 +39,8 @@ from config import (
     AUTO_CLOSE_POSITION,
     CLOSE_METHOD, CLOSE_AGGRESSIVE_BPS, CLOSE_WAIT_SEC,
     CLOSE_MIN_SIZE_MARKET, CLOSE_MAX_ITERATIONS,
-    SNAPSHOT_INTERVAL, SNAPSHOT_FILE, CANCEL_AFTER_DELAY
+    SNAPSHOT_INTERVAL, SNAPSHOT_FILE, CANCEL_AFTER_DELAY,
+    RESTART_INTERVAL,
 )
 
 load_dotenv()
@@ -882,11 +883,24 @@ async def main():
         total_collateral = 0.0
         need_collateral_update = True  # 시작 시 + 청산 후에만 True
 
+        # 자동 재시작 추적
+        start_time = time.time()
+
         # 메인 루프 (Live context로 flicker-free 업데이트)
         with Live(console=console, refresh_per_second=10, transient=True) as live:
             while True:
                 try:
                     current_time = time.time()
+
+                    # 자동 재시작 체크
+                    if RESTART_INTERVAL > 0 and (current_time - start_time) >= RESTART_INTERVAL:
+                        console.print(f"\n[yellow]Restarting after {RESTART_INTERVAL}s...[/yellow]")
+                        if is_live:
+                            await order_mgr.exchange.cancel_orders(symbol=order_mgr.symbol)
+                            console.print("[green]All orders cancelled before restart...5s remains.[/green]")
+                            await asyncio.sleep(5)
+                        file_logger.info(f"AUTO RESTART | Interval: {RESTART_INTERVAL}s")
+                        os.execv(sys.executable, [sys.executable] + sys.argv)
 
                     # collateral 갱신 (시작 시 또는 청산 후)
                     if need_collateral_update:
