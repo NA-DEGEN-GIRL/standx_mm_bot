@@ -938,6 +938,7 @@ async def main():
                         console.print(f"\n[yellow]Restarting after {RESTART_INTERVAL}s...[/yellow]")
                         if is_live:
                             await order_mgr.exchange.cancel_orders(symbol=order_mgr.symbol)
+                            await order_mgr.exchange.close()
                             console.print(f"[green]All orders cancelled before restart...{RESTART_DELAY}s remains.[/green]")
                             await asyncio.sleep(RESTART_DELAY)
                         file_logger.info(f"AUTO RESTART | Interval: {RESTART_INTERVAL}s")
@@ -954,6 +955,7 @@ async def main():
                             console.print("[yellow]Force restarting to restore WS connection...[/yellow]")
                             if is_live:
                                 await order_mgr.exchange.cancel_orders(symbol=order_mgr.symbol)
+                                await order_mgr.exchange.close()
                                 console.print(f"[green]All orders cancelled before restart...{RESTART_DELAY}s remains.[/green]")
                                 await asyncio.sleep(RESTART_DELAY)
                             file_logger.info(f"FORCE RESTART | WS fallback exceeded (ws: {ws_total}, order_ws: {order_ws_total})")
