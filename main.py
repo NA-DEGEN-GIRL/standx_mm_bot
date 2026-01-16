@@ -61,6 +61,9 @@ file_logger.addHandler(file_handler)
 # Console log file (cleared on startup)
 _console_log_file = open(CONSOLE_LOG_FILE, "w", encoding="utf-8")
 
+# Keyboard interrupt flag (for auto-restart logic)
+_keyboard_interrupted = False
+
 
 def log_message(message: str) -> None:
     """Log message to console_log.txt with timestamp"""
@@ -1222,7 +1225,9 @@ async def main():
                     await asyncio.sleep(backoff)
 
     except KeyboardInterrupt:
-        console.print("\n[yellow]Shutting down...[/yellow]")
+        global _keyboard_interrupted
+        _keyboard_interrupted = True
+        console.print("\n[yellow]Shutting down (keyboard interrupt)...[/yellow]")
     finally:
         # Cancel all orders before exit (all symbol orders regardless of cache)
         if is_live:
@@ -1253,12 +1258,24 @@ async def main():
         # Close console log file
         _console_log_file.close()
 
+        # Auto-restart if not keyboard interrupted (server error recovery)
+        if not _keyboard_interrupted:
+            restart_delay = RESTART_DELAY if RESTART_DELAY > 0 else 5.0
+            log_message(f"AUTO RESTART | Unexpected exit, restarting in {restart_delay}s...")
+            console.print(f"\n[yellow]Unexpected exit detected. Auto-restarting in {restart_delay}s...[/yellow]")
+            console.print("[dim]Press Ctrl+C again to cancel restart[/dim]")
+            try:
+                time.sleep(restart_delay)
+                os.execv(sys.executable, [sys.executable] + sys.argv)
+            except KeyboardInterrupt:
+                console.print("\n[yellow]Restart cancelled by user.[/yellow]")
+
 
 if __name__ == "__main__":
     try:
         asyncio.run(main())
     except KeyboardInterrupt:
-        pass
+        _keyboard_interrupted = True
     finally:
         # Ensure log file is closed on exit
         if not _console_log_file.closed:
