@@ -7,3 +7,6 @@ config.py
 position_log.txt
 status.txt
 console_log.txt
+**gpt**
+ai_models.txt
+.venv
