@@ -10,3 +10,4 @@ console_log.txt
 **gpt**
 ai_models.txt
 .venv
+logs/
