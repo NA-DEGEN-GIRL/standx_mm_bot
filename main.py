@@ -1147,8 +1147,9 @@ async def main():
                         can_modify_orders = True  # Can place new orders immediately if none exist
 
                     # ========== 4. Order Logic ==========
-                    # Drift check - rebalance (after MIN_WAIT_SEC delay)
-                    if has_orders and effective_drift > DRIFT_THRESHOLD and can_modify_orders:
+                    # Drift check / mid_unstable check - rebalance (after MIN_WAIT_SEC delay)
+                    # cancel_all if drift exceeded threshold or mid unstable
+                    if has_orders and (effective_drift > DRIFT_THRESHOLD or mid_unstable) and can_modify_orders:
                         order_mgr.rebalance()
                         await order_mgr.cancel_all("Drift exceeded threshold")
                         drift_info = f"{drift_bps:.1f}+{mid_diff_bps:.1f}" if USE_MID_DRIFT else f"{drift_bps:.1f}"
