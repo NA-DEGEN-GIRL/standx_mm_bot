@@ -276,7 +276,7 @@ class LiveOrderManager:
                         cancel_coros.append(self.exchange.cancel_order(order_id=order_id,
                 skip_rest=True))
                 if cancel_coros:
-                    await staggered_gather(*cancel_coros,delay=0.01)
+                    await staggered_gather(*cancel_coros)
             count = len(orders_to_cancel)
             self.total_cancelled += count
             if count > 0:
@@ -1209,8 +1209,7 @@ async def main():
                     elif not has_orders and buy_is_maker and sell_is_maker and not mid_unstable and not mid_cooldown_active and not spread_unstable and not spread_cooldown_active:
                         buy_order, sell_order = await staggered_gather(
                             order_mgr.place_order("buy", buy_price, order_size, ref_price),
-                            order_mgr.place_order("sell", sell_price, order_size, ref_price),
-                            delay=0.01
+                            order_mgr.place_order("sell", sell_price, order_size, ref_price)
                         )
                         if buy_order and sell_order:
                             # {'code': 0, 'message': 'success', 'request_id': '....'}
