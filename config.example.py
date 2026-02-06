@@ -11,9 +11,12 @@ AUTO_CONFIRM = True    # True: skip YES confirmation for LIVE mode
 # Order Settings
 SPREAD_BPS = 6.5        # Order spread (bps)
 DRIFT_THRESHOLD = 3.5   # Rebalance trigger (bps)
+USE_MID_AS_MARK = False # True: use mid price instead of mark price for order calculation
 USE_MID_DRIFT = True    # True: mark drift + mid drift combined, False: mark drift only
 MARK_MID_DIFF_LIMIT = 1.0  # Wait if mark-mid diff exceeds this (bps), 0 to disable
 MID_UNSTABLE_COOLDOWN = 0  # Extra wait after mid unstable (sec), 0 for immediate
+SPREAD_UNSTABLE_LIMIT = 0  # Wait if orderbook spread exceeds this (bps), 0 to disable
+SPREAD_UNSTABLE_COOLDOWN = 0  # Extra wait after spread unstable (sec), 0 for immediate
 MIN_WAIT_SEC = 0.1      # Minimum wait before order modification (sec)
 REFRESH_INTERVAL = 0.05 # Screen refresh interval (sec)
 CANCEL_AFTER_DELAY = 0.5 # Delay after order cancellation (sec)

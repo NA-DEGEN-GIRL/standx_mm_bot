@@ -182,7 +182,21 @@ Recommended: **2-5**
 
 ---
 
-### 5. USE_MID_DRIFT - Consider Mid Price
+### 5. USE_MID_AS_MARK - Use Mid Price as Reference
+
+```python
+USE_MID_AS_MARK = False   # Use mark price for order calculation (default)
+USE_MID_AS_MARK = True    # Use mid price instead of mark price
+```
+
+When enabled, the bot uses mid price (weighted average of best bid/ask) instead of mark price for:
+- Order price calculation
+- Drift calculation
+- Order size calculation
+
+---
+
+### 5-1. USE_MID_DRIFT - Consider Mid Price Drift
 
 ```python
 USE_MID_DRIFT = False   # Only consider mark price drift
@@ -210,6 +224,32 @@ MID_UNSTABLE_COOLDOWN = 3.0  # Wait 3 more seconds after becoming stable
 ```
 
 This helps filter "false stability" after market turbulence.
+
+Recommended: **0** (immediate) or **1-3 seconds** (safer)
+
+---
+
+### 6-2. SPREAD_UNSTABLE_LIMIT - Wait When Spread is Too Wide
+
+```python
+SPREAD_UNSTABLE_LIMIT = 0      # Disabled (always place orders)
+SPREAD_UNSTABLE_LIMIT = 10.0   # Wait if orderbook spread > 10bps
+```
+
+When the orderbook spread is too wide, market conditions are unfavorable. This setting pauses order placement and cancels existing orders when spread exceeds the limit.
+
+Recommended: **0** (disabled) or **8-15** (conservative)
+
+---
+
+### 6-3. SPREAD_UNSTABLE_COOLDOWN - Cooldown After Spread Stabilizes
+
+```python
+SPREAD_UNSTABLE_COOLDOWN = 0    # Disabled (order immediately when stable)
+SPREAD_UNSTABLE_COOLDOWN = 2.0  # Wait 2 more seconds after spread narrows
+```
+
+Similar to MID_UNSTABLE_COOLDOWN, this adds extra wait time after spread returns to normal.
 
 Recommended: **0** (immediate) or **1-3 seconds** (safer)
 
@@ -580,7 +620,21 @@ DRIFT_THRESHOLD = 3.0   # 가격이 0.03% 움직이면 주문 재배치
 
 ---
 
-### 5. USE_MID_DRIFT - mid price 변동도 고려할지
+### 5. USE_MID_AS_MARK - mid price를 기준가로 사용
+
+```python
+USE_MID_AS_MARK = False   # mark price 기준으로 주문 (기본값)
+USE_MID_AS_MARK = True    # mid price 기준으로 주문
+```
+
+활성화하면 mark price 대신 mid price (최우선 매수/매도호가의 가중평균)를 사용합니다:
+- 주문 가격 계산
+- Drift 계산
+- 주문 수량 계산
+
+---
+
+### 5-1. USE_MID_DRIFT - mid price 변동도 고려할지
 
 ```python
 USE_MID_DRIFT = False   # mark price만 보고 취소 결정
@@ -610,6 +664,32 @@ MID_UNSTABLE_COOLDOWN = 3.0  # 안정 후 3초 더 기다림
 "가짜 안정"을 필터링하는 용도입니다.
 
 추천: **0** (바로 주문) 또는 **1~3초** (급변동 후 안전하게)
+
+---
+
+### 6-2. SPREAD_UNSTABLE_LIMIT - 스프레드 너무 넓을 때 대기
+
+```python
+SPREAD_UNSTABLE_LIMIT = 0      # 비활성화 (항상 주문)
+SPREAD_UNSTABLE_LIMIT = 10.0   # 스프레드 10bps 초과시 대기
+```
+
+호가창 스프레드가 너무 넓으면 시장 상황이 좋지 않습니다. 이 설정은 스프레드가 임계값을 초과하면 주문을 중단하고 기존 주문도 취소합니다.
+
+추천: **0** (비활성화) 또는 **8~15** (보수적)
+
+---
+
+### 6-3. SPREAD_UNSTABLE_COOLDOWN - 스프레드 안정 후 추가 대기
+
+```python
+SPREAD_UNSTABLE_COOLDOWN = 0    # 비활성화 (스프레드 안정되면 즉시 주문)
+SPREAD_UNSTABLE_COOLDOWN = 2.0  # 스프레드 안정 후 2초 더 기다림
+```
+
+MID_UNSTABLE_COOLDOWN과 비슷하게, 스프레드가 정상으로 돌아온 후 추가 대기 시간입니다.
+
+추천: **0** (바로 주문) 또는 **1~3초** (안전하게)
 
 ---
 
@@ -978,7 +1058,21 @@ DRIFT_THRESHOLD = 3.0   # 价格移动0.03%时重新下单
 
 ---
 
-### 5. USE_MID_DRIFT - 考虑中间价
+### 5. USE_MID_AS_MARK - 使用中间价作为参考价
+
+```python
+USE_MID_AS_MARK = False   # 使用标记价格计算订单（默认）
+USE_MID_AS_MARK = True    # 使用中间价代替标记价格
+```
+
+启用后，机器人使用中间价（最佳买卖价的加权平均）代替标记价格：
+- 订单价格计算
+- 偏移计算
+- 订单数量计算
+
+---
+
+### 5-1. USE_MID_DRIFT - 考虑中间价偏移
 
 ```python
 USE_MID_DRIFT = False   # 只考虑标记价格偏移
@@ -1006,6 +1100,32 @@ MID_UNSTABLE_COOLDOWN = 3.0  # 稳定后再等3秒
 ```
 
 用于过滤"假稳定"。
+
+推荐：**0**（立即）或 **1-3秒**（更安全）
+
+---
+
+### 6-2. SPREAD_UNSTABLE_LIMIT - 价差过大时等待
+
+```python
+SPREAD_UNSTABLE_LIMIT = 0      # 禁用（始终下单）
+SPREAD_UNSTABLE_LIMIT = 10.0   # 价差超过10bps时等待
+```
+
+当订单簿价差过大时，市场条件不利。此设置在价差超过限制时暂停下单并取消现有订单。
+
+推荐：**0**（禁用）或 **8-15**（保守）
+
+---
+
+### 6-3. SPREAD_UNSTABLE_COOLDOWN - 价差稳定后的冷却时间
+
+```python
+SPREAD_UNSTABLE_COOLDOWN = 0    # 禁用（价差稳定后立即下单）
+SPREAD_UNSTABLE_COOLDOWN = 2.0  # 价差稳定后再等2秒
+```
+
+类似于MID_UNSTABLE_COOLDOWN，在价差恢复正常后添加额外等待时间。
 
 推荐：**0**（立即）或 **1-3秒**（更安全）
 

@@ -33,7 +33,7 @@ from exchange_factory import create_exchange, symbol_create
 from dotenv import load_dotenv
 from config import (
     MODE, EXCHANGE, COIN, AUTO_CONFIRM,
-    SPREAD_BPS, DRIFT_THRESHOLD, USE_MID_DRIFT, MARK_MID_DIFF_LIMIT, MID_UNSTABLE_COOLDOWN,
+    SPREAD_BPS, DRIFT_THRESHOLD, USE_MID_AS_MARK, USE_MID_DRIFT, MARK_MID_DIFF_LIMIT, MID_UNSTABLE_COOLDOWN, SPREAD_UNSTABLE_LIMIT, SPREAD_UNSTABLE_COOLDOWN,
     MIN_WAIT_SEC, REFRESH_INTERVAL,
     SIZE_UNIT, LEVERAGE, MAX_SIZE_BTC,
     MAX_HISTORY, MAX_CONSECUTIVE_ERRORS,
@@ -650,6 +650,7 @@ async def close_position_strategic(
 def build_dashboard(
     symbol: str,
     mark_price: float,
+    ref_price: float,
     best_bid: float,
     best_ask: float,
     best_bid_size: float,
@@ -755,7 +756,7 @@ def build_dashboard(
     # SELL Order (displayed above)
     sell_maker_text = Text("[MAKER]", style="green") if sell_is_maker else Text("[TAKER]", style="red")
     if sell_order:
-        sell_drift = calc_drift_bps(mark_price, sell_order.reference_price)
+        sell_drift = calc_drift_bps(ref_price, sell_order.reference_price)
         sell_line = Text("  SELL: ", style="red")
         sell_line.append("● OPEN  ", style="red bold")
         sell_line.append(f"{sell_order.id}  @ {format_price(sell_order.price)}  x{sell_order.size}")
@@ -771,7 +772,7 @@ def build_dashboard(
     # BUY Order (displayed below)
     buy_maker_text = Text("[MAKER]", style="green") if buy_is_maker else Text("[TAKER]", style="red")
     if buy_order:
-        buy_drift = calc_drift_bps(mark_price, buy_order.reference_price)
+        buy_drift = calc_drift_bps(ref_price, buy_order.reference_price)
         buy_line = Text("  BUY:  ", style="green")
         buy_line.append("● OPEN  ", style="green bold")
         buy_line.append(f"{buy_order.id}  @ {format_price(buy_order.price)}  x{buy_order.size}")
@@ -799,6 +800,8 @@ def build_dashboard(
         status_text = Text("◌ WAITING - Would be TAKER", style="yellow bold")
     elif status == "MID_WAIT":
         status_text = Text("◌ MID_WAIT - Mid drift unstable", style="yellow bold")
+    elif status == "SPREAD_WAIT":
+        status_text = Text("◌ SPREAD_WAIT - Spread too wide", style="yellow bold")
     elif status == "REBALANCING":
         status_text = Text("⟳ REBALANCING - Cancelling & replacing", style="yellow bold")
     else:
@@ -943,6 +946,9 @@ async def main():
         # Mid unstable cooldown tracking
         last_mid_unstable_time = 0.0
 
+        # Spread unstable cooldown tracking
+        last_spread_unstable_time = 0.0
+
         # Main loop (flicker-free update with Live context)
         with Live(console=console, refresh_per_second=10, transient=True) as live:
             while True:
@@ -1019,9 +1025,11 @@ async def main():
                     mid_price = (best_bid * best_bid_size + best_ask * best_ask_size) / total_size if total_size > 0 else (best_bid + best_ask) / 2
                     mid_diff_bps = abs((mid_price - mark_price) / mark_price * 10000) if mark_price > 0 else 0
 
+                    # Reference price for order calculation (mid or mark based on config)
+                    ref_price = mid_price if USE_MID_AS_MARK else mark_price
 
                     # Calculate based on total (consistent size display even with orders)
-                    order_size = calc_order_size(total_collateral, mark_price)
+                    order_size = calc_order_size(total_collateral, ref_price)
 
                     # Get position
                     position = await exchange.get_position(symbol)
@@ -1088,7 +1096,7 @@ async def main():
                         continue
 
                     # Calculate order prices
-                    buy_price, sell_price = calc_order_prices(mark_price, SPREAD_BPS)
+                    buy_price, sell_price = calc_order_prices(ref_price, SPREAD_BPS)
 
                     # Maker/taker determination
                     buy_is_maker, sell_is_maker = check_maker_taker(
@@ -1105,9 +1113,9 @@ async def main():
 
                     # Calculate drift (based on order)
                     if buy_order:
-                        drift_bps = calc_drift_bps(mark_price, buy_order.reference_price)
+                        drift_bps = calc_drift_bps(ref_price, buy_order.reference_price)
                     elif sell_order:
-                        drift_bps = calc_drift_bps(mark_price, sell_order.reference_price)
+                        drift_bps = calc_drift_bps(ref_price, sell_order.reference_price)
                     else:
                         drift_bps = 0.0
 
@@ -1126,12 +1134,26 @@ async def main():
                         (time.time() - last_mid_unstable_time) < MID_UNSTABLE_COOLDOWN
                     )
 
+                    # Wait for orders if orderbook spread is too large
+                    spread_unstable = SPREAD_UNSTABLE_LIMIT > 0 and ob_spread_bps > SPREAD_UNSTABLE_LIMIT
+
+                    # Record spread unstable time and check cooldown
+                    if spread_unstable:
+                        last_spread_unstable_time = time.time()
+                    spread_cooldown_active = (
+                        SPREAD_UNSTABLE_COOLDOWN > 0 and
+                        last_spread_unstable_time > 0 and
+                        (time.time() - last_spread_unstable_time) < SPREAD_UNSTABLE_COOLDOWN
+                    )
+
                     if order_size <= 0:
                         status = "NO_SIZE"
                     elif not buy_is_maker or not sell_is_maker:
                         status = "WAITING"
                     elif (mid_unstable or mid_cooldown_active) and not has_orders:
                         status = "MID_WAIT"  # Waiting for mid drift stability (or cooldown)
+                    elif (spread_unstable or spread_cooldown_active) and not has_orders:
+                        status = "SPREAD_WAIT"  # Waiting for spread stability (or cooldown)
                     elif has_orders:
                         if effective_drift > DRIFT_THRESHOLD:
                             status = "REBALANCING"
@@ -1154,22 +1176,22 @@ async def main():
                         can_modify_orders = True  # Can place new orders immediately if none exist
 
                     # ========== 4. Order Logic ==========
-                    # Drift check / mid_unstable check - rebalance (after MIN_WAIT_SEC delay)
-                    # cancel_all if drift exceeded threshold or mid unstable
-                    if has_orders and (effective_drift > DRIFT_THRESHOLD or mid_unstable) and can_modify_orders:
+                    # Drift check / unstable check - rebalance (after MIN_WAIT_SEC delay)
+                    # cancel_all if drift exceeded threshold or mid/spread unstable
+                    if has_orders and (effective_drift > DRIFT_THRESHOLD or mid_unstable or spread_unstable) and can_modify_orders:
                         order_mgr.rebalance()
-                        await order_mgr.cancel_all("Drift exceeded threshold")
+                        await order_mgr.cancel_all("Drift exceeded threshold or unstable")
                         drift_info = f"{drift_bps:.1f}+{mid_diff_bps:.1f}" if USE_MID_DRIFT else f"{drift_bps:.1f}"
-                        last_action = f"Cancelled for rebalance (drift: {drift_info}bps)"
+                        last_action = f"Cancelled for rebalance (drift: {drift_info}bps, spread: {ob_spread_bps:.1f}bps)"
                         orders_exist_since = None
                         await asyncio.sleep(CANCEL_AFTER_DELAY)
                         continue  # Place new order with fresh price in next iteration
 
-                    # No orders and maker conditions met - place new orders (only when mid stable + cooldown done)
-                    elif not has_orders and buy_is_maker and sell_is_maker and not mid_unstable and not mid_cooldown_active:
+                    # No orders and maker conditions met - place new orders (only when stable + cooldown done)
+                    elif not has_orders and buy_is_maker and sell_is_maker and not mid_unstable and not mid_cooldown_active and not spread_unstable and not spread_cooldown_active:
                         buy_order, sell_order = await staggered_gather(
-                            order_mgr.place_order("buy", buy_price, order_size, mark_price),
-                            order_mgr.place_order("sell", sell_price, order_size, mark_price),
+                            order_mgr.place_order("buy", buy_price, order_size, ref_price),
+                            order_mgr.place_order("sell", sell_price, order_size, ref_price),
                         )
                         if buy_order and sell_order:
                             # {'code': 0, 'message': 'success', 'request_id': '....'}
@@ -1181,6 +1203,7 @@ async def main():
                     dashboard = build_dashboard(
                         symbol=symbol,
                         mark_price=mark_price,
+                        ref_price=ref_price,
                         best_bid=best_bid,
                         best_ask=best_ask,
                         best_bid_size=best_bid_size,
