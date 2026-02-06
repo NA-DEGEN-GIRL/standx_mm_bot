@@ -40,7 +40,7 @@ from config import (
     AUTO_CLOSE_POSITION,
     CLOSE_METHOD, CLOSE_AGGRESSIVE_BPS, CLOSE_WAIT_SEC,
     CLOSE_MIN_SIZE_MARKET, CLOSE_MAX_ITERATIONS,
-    SNAPSHOT_INTERVAL, SNAPSHOT_FILE, CANCEL_AFTER_DELAY,
+    SNAPSHOT_INTERVAL, SNAPSHOT_FILE, CANCEL_AFTER_DELAY, INCOMPLETE_ORDER_THRESHOLD,
     RESTART_INTERVAL, RESTART_DELAY, MAX_WS_FALLBACK,
 )
 
@@ -952,6 +952,9 @@ async def main():
         # Spread unstable cooldown tracking
         last_spread_unstable_time = 0.0
 
+        # Incomplete order counter (one-sided order detection)
+        incomplete_order_count = 0
+
         # Main loop (flicker-free update with Live context)
         with Live(console=console, refresh_per_second=10, transient=True) as live:
             while True:
@@ -1187,14 +1190,21 @@ async def main():
                         can_modify_orders = True  # Can place new orders immediately if none exist
 
                     # ========== 4. Order Logic ==========
-                    # Incomplete orders check - one side missing, cancel and retry
+                    # Incomplete orders check - one side missing, cancel after threshold
                     if has_orders and not has_both:
-                        await order_mgr.cancel_all("Incomplete orders - one side missing")
+                        incomplete_order_count += 1
                         missing_side = "SELL" if has_buy else "BUY"
-                        last_action = f"Cancelled incomplete orders ({missing_side} missing)"
-                        orders_exist_since = None
-                        await asyncio.sleep(CANCEL_AFTER_DELAY)
-                        continue
+                        # Cancel only if threshold exceeded (or threshold is 0 for immediate)
+                        if INCOMPLETE_ORDER_THRESHOLD == 0 or incomplete_order_count >= INCOMPLETE_ORDER_THRESHOLD:
+                            await order_mgr.cancel_all(f"Incomplete orders - {missing_side} missing (count: {incomplete_order_count})")
+                            last_action = f"Cancelled incomplete orders ({missing_side} missing, count: {incomplete_order_count})"
+                            incomplete_order_count = 0  # Reset counter
+                            orders_exist_since = None
+                            await asyncio.sleep(CANCEL_AFTER_DELAY)
+                            continue
+                    else:
+                        # Reset counter when both orders exist or no orders
+                        incomplete_order_count = 0
 
                     # Drift check / unstable check - rebalance (after MIN_WAIT_SEC delay)
                     # cancel_all if drift exceeded threshold or mid/spread unstable

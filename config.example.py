@@ -21,6 +21,7 @@ SPREAD_UNSTABLE_COOLDOWN = 0  # Extra wait after spread unstable (sec), 0 for im
 MIN_WAIT_SEC = 0.1      # Minimum wait before order modification (sec)
 REFRESH_INTERVAL = 0.05 # Screen refresh interval (sec)
 CANCEL_AFTER_DELAY = 0.5 # Delay after order cancellation (sec)
+INCOMPLETE_ORDER_THRESHOLD = 10  # Cancel if one-sided order detected N times consecutively (0 = immediate)
 
 # Size Settings
 SIZE_UNIT = 0.0001      # Order size unit (BTC)
