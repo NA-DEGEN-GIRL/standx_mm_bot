@@ -997,13 +997,22 @@ async def main():
                         available_collateral = float(collateral.get("available_collateral", 0))
                         total_collateral = float(collateral.get("total_collateral", 0))
 
-                    # ========== 0. LIVE mode: Fetch orders from server ==========
+                    # ========== 0. Fetch all data in parallel ==========
                     if is_live:
-                        await order_mgr.fetch_orders()
+                        _, mark_price_str, orderbook, position = await asyncio.gather(
+                            order_mgr.fetch_orders(),
+                            exchange.get_mark_price(symbol),
+                            exchange.get_orderbook(symbol),
+                            exchange.get_position(symbol),
+                        )
+                    else:
+                        mark_price_str, orderbook, position = await asyncio.gather(
+                            exchange.get_mark_price(symbol),
+                            exchange.get_orderbook(symbol),
+                            exchange.get_position(symbol),
+                        )
 
-                    # ========== 1. Fetch real-time data ==========
-                    # Get mark_price
-                    mark_price_str = await exchange.get_mark_price(symbol)
+                    # ========== 1. Process fetched data ==========
                     mark_price = float(mark_price_str)
 
                     # Data validation: mark_price
@@ -1011,8 +1020,6 @@ async def main():
                         await asyncio.sleep(REFRESH_INTERVAL)
                         continue
 
-                    # Get orderbook
-                    orderbook = await exchange.get_orderbook(symbol)
                     bids = orderbook.get("bids", [])
                     asks = orderbook.get("asks", [])
 
@@ -1041,9 +1048,6 @@ async def main():
 
                     # Calculate based on total (consistent size display even with orders)
                     order_size = calc_order_size(total_collateral, ref_price)
-
-                    # Get position
-                    position = await exchange.get_position(symbol)
 
                     # ========== Auto Position Close ==========
                     if AUTO_CLOSE_POSITION and position and float(position.get("size", 0)) != 0:
@@ -1141,11 +1145,11 @@ async def main():
 
                     # Record mid unstable time and check cooldown
                     if mid_unstable:
-                        last_mid_unstable_time = time.time()
+                        last_mid_unstable_time = current_time
                     mid_cooldown_active = (
                         MID_UNSTABLE_COOLDOWN > 0 and
                         last_mid_unstable_time > 0 and
-                        (time.time() - last_mid_unstable_time) < MID_UNSTABLE_COOLDOWN
+                        (current_time - last_mid_unstable_time) < MID_UNSTABLE_COOLDOWN
                     )
 
                     # Wait for orders if orderbook spread is too large
@@ -1153,11 +1157,11 @@ async def main():
 
                     # Record spread unstable time and check cooldown
                     if spread_unstable:
-                        last_spread_unstable_time = time.time()
+                        last_spread_unstable_time = current_time
                     spread_cooldown_active = (
                         SPREAD_UNSTABLE_COOLDOWN > 0 and
                         last_spread_unstable_time > 0 and
-                        (time.time() - last_spread_unstable_time) < SPREAD_UNSTABLE_COOLDOWN
+                        (current_time - last_spread_unstable_time) < SPREAD_UNSTABLE_COOLDOWN
                     )
 
                     if order_size <= 0:
@@ -1178,10 +1182,9 @@ async def main():
 
                     # ========== 3. Track Order Existence Time ==========
                     if has_orders:
-                        now = time.time()
                         if orders_exist_since is None:
-                            orders_exist_since = now  # Orders first detected
-                        time_with_orders = now - orders_exist_since
+                            orders_exist_since = current_time  # Orders first detected
+                        time_with_orders = current_time - orders_exist_since
                         countdown = max(0.0, MIN_WAIT_SEC - time_with_orders)
                         can_modify_orders = time_with_orders >= MIN_WAIT_SEC
                     else:
@@ -1236,7 +1239,7 @@ async def main():
                             # {'code': 0, 'message': 'success', 'request_id': '....'}
                             has_orders = buy_order.message == 'success' and sell_order.message == 'success'
                             last_action = f"Placed BUY @ {format_price(buy_price)}, SELL @ {format_price(sell_price)}"
-                            orders_exist_since = time.time()  # Start timer
+                            orders_exist_since = current_time  # Start timer
 
                     # ========== 5. Display Dashboard ==========
                     dashboard = build_dashboard(
