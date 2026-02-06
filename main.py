@@ -266,11 +266,12 @@ class LiveOrderManager:
         """Cancel cached orders only (no conflict with newly created orders)"""
         try:
             orders_to_cancel = list(self._cached_orders.values())
+            
             if orders_to_cancel:
                 # Cancel each order individually using staggered_gather
                 cancel_coros = []
                 for order in orders_to_cancel:
-                    order_id = order.get("order_id") or order.get("client_order_id")
+                    order_id = order.get("id") or order.get("cl_ord_id")
                     if order_id:
                         cancel_coros.append(self.exchange.cancel_order(order_id=order_id))
                 if cancel_coros:
