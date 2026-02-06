@@ -12,6 +12,7 @@ AUTO_CONFIRM = True    # True: skip YES confirmation for LIVE mode
 SPREAD_BPS = 6.5        # Order spread (bps)
 DRIFT_THRESHOLD = 3.5   # Rebalance trigger (bps)
 USE_MID_AS_MARK = False # True: use mid price instead of mark price for order calculation
+MID_PRICE_DEPTH = 1     # Number of orderbook levels for mid price (1 = best only, N = top N weighted avg)
 USE_MID_DRIFT = True    # True: mark drift + mid drift combined, False: mark drift only
 MARK_MID_DIFF_LIMIT = 1.0  # Wait if mark-mid diff exceeds this (bps), 0 to disable
 MID_UNSTABLE_COOLDOWN = 0  # Extra wait after mid unstable (sec), 0 for immediate

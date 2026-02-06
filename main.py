@@ -33,7 +33,7 @@ from exchange_factory import create_exchange, symbol_create
 from dotenv import load_dotenv
 from config import (
     MODE, EXCHANGE, COIN, AUTO_CONFIRM,
-    SPREAD_BPS, DRIFT_THRESHOLD, USE_MID_AS_MARK, USE_MID_DRIFT, MARK_MID_DIFF_LIMIT, MID_UNSTABLE_COOLDOWN, SPREAD_UNSTABLE_LIMIT, SPREAD_UNSTABLE_COOLDOWN,
+    SPREAD_BPS, DRIFT_THRESHOLD, USE_MID_AS_MARK, MID_PRICE_DEPTH, USE_MID_DRIFT, MARK_MID_DIFF_LIMIT, MID_UNSTABLE_COOLDOWN, SPREAD_UNSTABLE_LIMIT, SPREAD_UNSTABLE_COOLDOWN,
     MIN_WAIT_SEC, REFRESH_INTERVAL,
     SIZE_UNIT, LEVERAGE, MAX_SIZE_BTC,
     MAX_HISTORY, MAX_CONSECUTIVE_ERRORS,
@@ -1020,9 +1020,14 @@ async def main():
                     best_bid_size = bids[0][1] if len(bids[0]) > 1 else 0
                     best_ask_size = asks[0][1] if len(asks[0]) > 1 else 0
 
-                    # Calculate mid price drift (size-weighted average)
-                    total_size = best_bid_size + best_ask_size
-                    mid_price = (best_bid * best_bid_size + best_ask * best_ask_size) / total_size if total_size > 0 else (best_bid + best_ask) / 2
+                    # Calculate mid price (size-weighted average with configurable depth)
+                    depth = min(MID_PRICE_DEPTH, len(bids), len(asks))
+                    bid_weighted_sum = sum(bids[i][0] * bids[i][1] for i in range(depth))
+                    bid_total_size = sum(bids[i][1] for i in range(depth))
+                    ask_weighted_sum = sum(asks[i][0] * asks[i][1] for i in range(depth))
+                    ask_total_size = sum(asks[i][1] for i in range(depth))
+                    total_size = bid_total_size + ask_total_size
+                    mid_price = (bid_weighted_sum + ask_weighted_sum) / total_size if total_size > 0 else (best_bid + best_ask) / 2
                     mid_diff_bps = abs((mid_price - mark_price) / mark_price * 10000) if mark_price > 0 else 0
 
                     # Reference price for order calculation (mid or mark based on config)
