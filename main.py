@@ -276,7 +276,7 @@ class LiveOrderManager:
                         cancel_coros.append(self.exchange.cancel_order(order_id=order_id,
                 skip_rest=True))
                 if cancel_coros:
-                    await staggered_gather(*cancel_coros)
+                    await staggered_gather(*cancel_coros,delay=0.01)
             count = len(orders_to_cancel)
             self.total_cancelled += count
             if count > 0:
@@ -1115,7 +1115,10 @@ async def main():
                     # Check current orders
                     buy_order = order_mgr.get_buy_order()
                     sell_order = order_mgr.get_sell_order()
-                    has_orders = buy_order is not None or sell_order is not None
+                    has_buy = buy_order is not None
+                    has_sell = sell_order is not None
+                    has_orders = has_buy or has_sell
+                    has_both = has_buy and has_sell
 
                     # Calculate drift (based on order)
                     if buy_order:
@@ -1182,6 +1185,15 @@ async def main():
                         can_modify_orders = True  # Can place new orders immediately if none exist
 
                     # ========== 4. Order Logic ==========
+                    # Incomplete orders check - one side missing, cancel and retry
+                    if has_orders and not has_both:
+                        await order_mgr.cancel_all("Incomplete orders - one side missing")
+                        missing_side = "SELL" if has_buy else "BUY"
+                        last_action = f"Cancelled incomplete orders ({missing_side} missing)"
+                        orders_exist_since = None
+                        await asyncio.sleep(CANCEL_AFTER_DELAY)
+                        continue
+
                     # Drift check / unstable check - rebalance (after MIN_WAIT_SEC delay)
                     # cancel_all if drift exceeded threshold or mid/spread unstable
                     if has_orders and (effective_drift > DRIFT_THRESHOLD or mid_unstable or spread_unstable) and can_modify_orders:
@@ -1198,6 +1210,7 @@ async def main():
                         buy_order, sell_order = await staggered_gather(
                             order_mgr.place_order("buy", buy_price, order_size, ref_price),
                             order_mgr.place_order("sell", sell_price, order_size, ref_price),
+                            delay=0.01
                         )
                         if buy_order and sell_order:
                             # {'code': 0, 'message': 'success', 'request_id': '....'}
