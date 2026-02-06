@@ -1200,7 +1200,16 @@ async def main():
                     # cancel_all if drift exceeded threshold or mid/spread unstable
                     if has_orders and (effective_drift > DRIFT_THRESHOLD or mid_unstable or spread_unstable) and can_modify_orders:
                         order_mgr.rebalance()
-                        await order_mgr.cancel_all("Drift exceeded threshold or unstable")
+                        # Build detailed cancel reason
+                        cancel_reasons = []
+                        if effective_drift > DRIFT_THRESHOLD:
+                            cancel_reasons.append(f"drift {effective_drift:.1f}>{DRIFT_THRESHOLD}bps")
+                        if mid_unstable:
+                            cancel_reasons.append(f"mid_unstable (diff:{mid_diff_bps:.1f}>{MARK_MID_DIFF_LIMIT}bps)")
+                        if spread_unstable:
+                            cancel_reasons.append(f"spread_unstable ({ob_spread_bps:.1f}>{SPREAD_UNSTABLE_LIMIT}bps)")
+                        cancel_reason = " | ".join(cancel_reasons)
+                        await order_mgr.cancel_all(cancel_reason)
                         drift_info = f"{drift_bps:.1f}+{mid_diff_bps:.1f}" if USE_MID_DRIFT else f"{drift_bps:.1f}"
                         last_action = f"Cancelled for rebalance (drift: {drift_info}bps, spread: {ob_spread_bps:.1f}bps)"
                         orders_exist_since = None
