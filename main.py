@@ -280,6 +280,8 @@ class LiveOrderManager:
             count = len(orders_to_cancel)
             self.total_cancelled += count
             if count > 0:
+                reason_str = f" - {reason}" if reason else ""
+                console.print(f"[yellow]Cancelling {count} order(s){reason_str}[/yellow]")
                 self._append_history({
                     "action": "CANCEL_ALL",
                     "count": count,
