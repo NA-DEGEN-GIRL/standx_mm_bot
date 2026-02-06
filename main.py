@@ -895,7 +895,7 @@ async def main():
     symbol = symbol_create(EXCHANGE, COIN)
     console.print(f"Symbol: {symbol}")
     try:
-        res = await exchange.update_leverage(symbol)
+        res = await exchange.update_leverage(symbol, LEVERAGE)
         console.print(f"Updated to max leverage! {res}")
     except Exception as e:
         console.print(f"Failed to update to max leverage.")
