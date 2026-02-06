@@ -273,7 +273,8 @@ class LiveOrderManager:
                 for order in orders_to_cancel:
                     order_id = order.get("id") or order.get("cl_ord_id")
                     if order_id:
-                        cancel_coros.append(self.exchange.cancel_order(order_id=order_id))
+                        cancel_coros.append(self.exchange.cancel_order(order_id=order_id,
+                skip_rest=True))
                 if cancel_coros:
                     await staggered_gather(*cancel_coros)
             count = len(orders_to_cancel)
