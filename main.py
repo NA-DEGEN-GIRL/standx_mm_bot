@@ -265,10 +265,16 @@ class LiveOrderManager:
     async def cancel_all(self, reason: str = "") -> int:
         """Cancel cached orders only (no conflict with newly created orders)"""
         try:
-            # Explicitly pass cached orders to cancel only those orders
             orders_to_cancel = list(self._cached_orders.values())
             if orders_to_cancel:
-                await self.exchange.cancel_orders(symbol=self.symbol, open_orders=orders_to_cancel)
+                # Cancel each order individually using staggered_gather
+                cancel_coros = []
+                for order in orders_to_cancel:
+                    order_id = order.get("order_id") or order.get("client_order_id")
+                    if order_id:
+                        cancel_coros.append(self.exchange.cancel_order(order_id=order_id))
+                if cancel_coros:
+                    await staggered_gather(*cancel_coros)
             count = len(orders_to_cancel)
             self.total_cancelled += count
             if count > 0:
@@ -947,7 +953,7 @@ async def main():
                         log_message(f"AUTO RESTART | Interval: {RESTART_INTERVAL}s")
                         console.print(f"\n[yellow]Restarting after {RESTART_INTERVAL}s...[/yellow]")
                         if is_live:
-                            await order_mgr.exchange.cancel_orders(symbol=order_mgr.symbol)
+                            await order_mgr.cancel_all(reason="auto_restart")
                             await order_mgr.exchange.close()
                             console.print(f"[green]All orders cancelled before restart...{RESTART_DELAY}s remains.[/green]")
                             await asyncio.sleep(RESTART_DELAY)
@@ -964,7 +970,7 @@ async def main():
                             console.print(f"\n[red]WS fallback limit exceeded (ws: {ws_total}, order_ws: {order_ws_total})[/red]")
                             console.print("[yellow]Force restarting to restore WS connection...[/yellow]")
                             if is_live:
-                                await order_mgr.exchange.cancel_orders(symbol=order_mgr.symbol)
+                                await order_mgr.cancel_all(reason="ws_fallback_limit_exceeded")
                                 await order_mgr.exchange.close()
                                 console.print(f"[green]All orders cancelled before restart...{RESTART_DELAY}s remains.[/green]")
                                 await asyncio.sleep(RESTART_DELAY)
@@ -1241,7 +1247,7 @@ async def main():
         if is_live:
             console.print("Cancelling all orders...")
             try:
-                await order_mgr.exchange.cancel_orders(symbol=order_mgr.symbol)
+                await order_mgr.cancel_all(reason="shutdown")
                 console.print("[green]All orders cancelled.[/green]")
             except Exception as e:
                 console.print(f"[red]Failed to cancel orders: {e}[/red]")
