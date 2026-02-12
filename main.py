@@ -1214,10 +1214,9 @@ async def main():
                             await asyncio.sleep(CANCEL_AFTER_DELAY)
                             continue
                     elif has_both:
-                        # Both orders active - reset all incomplete tracking
+                        # Both orders active - reset incomplete tracking (keep size_reduction)
                         incomplete_order_count = 0
                         incomplete_cancel_streak = 0
-                        size_reduction = 0.0
                     else:
                         # No orders - reset detection counter only
                         incomplete_order_count = 0
