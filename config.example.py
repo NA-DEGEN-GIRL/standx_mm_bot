@@ -22,6 +22,8 @@ MIN_WAIT_SEC = 0.1      # Minimum wait before order modification (sec)
 REFRESH_INTERVAL = 0.05 # Screen refresh interval (sec)
 CANCEL_AFTER_DELAY = 0.5 # Delay after order cancellation (sec)
 INCOMPLETE_ORDER_THRESHOLD = 10  # Cancel if one-sided order detected N times consecutively (0 = immediate)
+INCOMPLETE_REDUCE_STREAK = 3     # Reduce order size after N consecutive incomplete cancellations (0 = disable)
+INCOMPLETE_REDUCE_SIZE = 0.1  # BTC to reduce per streak
 
 # Size Settings
 SIZE_UNIT = 0.0001      # Order size unit (BTC)

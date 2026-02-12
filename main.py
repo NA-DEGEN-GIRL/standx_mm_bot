@@ -40,7 +40,7 @@ from config import (
     AUTO_CLOSE_POSITION,
     CLOSE_METHOD, CLOSE_AGGRESSIVE_BPS, CLOSE_WAIT_SEC,
     CLOSE_MIN_SIZE_MARKET, CLOSE_MAX_ITERATIONS,
-    SNAPSHOT_INTERVAL, SNAPSHOT_FILE, CANCEL_AFTER_DELAY, INCOMPLETE_ORDER_THRESHOLD,
+    SNAPSHOT_INTERVAL, SNAPSHOT_FILE, CANCEL_AFTER_DELAY, INCOMPLETE_ORDER_THRESHOLD, INCOMPLETE_REDUCE_STREAK, INCOMPLETE_REDUCE_SIZE,
     RESTART_INTERVAL, RESTART_DELAY, MAX_WS_FALLBACK,
 )
 
@@ -954,6 +954,8 @@ async def main():
 
         # Incomplete order counter (one-sided order detection)
         incomplete_order_count = 0
+        incomplete_cancel_streak = 0  # Consecutive incomplete cancellations
+        size_reduction = 0.0          # Accumulated order size reduction (BTC)
 
         # Main loop (flicker-free update with Live context)
         with Live(console=console, refresh_per_second=10, transient=True) as live:
@@ -1199,14 +1201,25 @@ async def main():
                         missing_side = "SELL" if has_buy else "BUY"
                         # Cancel only if threshold exceeded (or threshold is 0 for immediate)
                         if INCOMPLETE_ORDER_THRESHOLD == 0 or incomplete_order_count >= INCOMPLETE_ORDER_THRESHOLD:
-                            await order_mgr.cancel_all(f"Incomplete orders - {missing_side} missing (count: {incomplete_order_count})")
-                            last_action = f"Cancelled incomplete orders ({missing_side} missing, count: {incomplete_order_count})"
+                            incomplete_cancel_streak += 1
+                            # Auto-reduce order size after consecutive incomplete streaks
+                            if INCOMPLETE_REDUCE_STREAK > 0 and incomplete_cancel_streak >= INCOMPLETE_REDUCE_STREAK:
+                                size_reduction += INCOMPLETE_REDUCE_SIZE
+                                incomplete_cancel_streak = 0  # Reset streak after reduction
+                                console.print(f"[yellow]Order size reduced by {size_reduction:.4f} BTC (insufficient collateral)[/yellow]")
+                            await order_mgr.cancel_all(f"Incomplete orders - {missing_side} missing (count: {incomplete_order_count}, streak: {incomplete_cancel_streak}, reduced: {size_reduction:.4f})")
+                            last_action = f"Cancelled incomplete ({missing_side} missing, streak: {incomplete_cancel_streak}, size: -{size_reduction:.4f})"
                             incomplete_order_count = 0  # Reset counter
                             orders_exist_since = None
                             await asyncio.sleep(CANCEL_AFTER_DELAY)
                             continue
+                    elif has_both:
+                        # Both orders active - reset all incomplete tracking
+                        incomplete_order_count = 0
+                        incomplete_cancel_streak = 0
+                        size_reduction = 0.0
                     else:
-                        # Reset counter when both orders exist or no orders
+                        # No orders - reset detection counter only
                         incomplete_order_count = 0
 
                     # Drift check / unstable check - rebalance (after MIN_WAIT_SEC delay)
@@ -1231,14 +1244,19 @@ async def main():
 
                     # No orders and maker conditions met - place new orders (only when stable + cooldown done)
                     elif not has_orders and buy_is_maker and sell_is_maker and not mid_unstable and not mid_cooldown_active and not spread_unstable and not spread_cooldown_active:
+                        # Apply size reduction from incomplete order streaks
+                        effective_size = round(order_size - size_reduction, 8)
+                        if effective_size < SIZE_UNIT:
+                            effective_size = 0.0
                         buy_order, sell_order = await staggered_gather(
-                            order_mgr.place_order("buy", buy_price, order_size, ref_price),
-                            order_mgr.place_order("sell", sell_price, order_size, ref_price)
+                            order_mgr.place_order("buy", buy_price, effective_size, ref_price),
+                            order_mgr.place_order("sell", sell_price, effective_size, ref_price)
                         )
                         if buy_order and sell_order:
                             # {'code': 0, 'message': 'success', 'request_id': '....'}
                             has_orders = buy_order.message == 'success' and sell_order.message == 'success'
-                            last_action = f"Placed BUY @ {format_price(buy_price)}, SELL @ {format_price(sell_price)}"
+                            size_info = f" (reduced: -{size_reduction:.4f})" if size_reduction > 0 else ""
+                            last_action = f"Placed BUY @ {format_price(buy_price)}, SELL @ {format_price(sell_price)}{size_info}"
                             orders_exist_since = current_time  # Start timer
 
                     # ========== 5. Display Dashboard ==========
