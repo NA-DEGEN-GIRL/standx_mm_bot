@@ -262,11 +262,11 @@ class LiveOrderManager:
             console.print(f"[red]Order failed: {e}[/red]")
         return None
 
-    async def cancel_all(self, reason: str = "") -> int:
+    async def cancel_all(self, reason: str = "", skip_rest=True) -> int:
         """Cancel cached orders only (no conflict with newly created orders)"""
         try:
             orders_to_cancel = list(self._cached_orders.values())
-            
+            print(orders_to_cancel)
             if orders_to_cancel:
                 # Cancel each order individually using staggered_gather
                 cancel_coros = []
@@ -274,7 +274,7 @@ class LiveOrderManager:
                     order_id = order.get("id") or order.get("cl_ord_id")
                     if order_id:
                         cancel_coros.append(self.exchange.cancel_order(order_id=order_id,
-                skip_rest=True))
+                skip_rest=skip_rest))
                 if cancel_coros:
                     await staggered_gather(*cancel_coros)
             count = len(orders_to_cancel)
@@ -731,7 +731,7 @@ def build_dashboard(
     mid_price = (best_bid * best_bid_size + best_ask * best_ask_size) / total_size if total_size > 0 else (best_bid + best_ask) / 2
     mid_diff_bps = (mid_price - mark_price) / mark_price * 10000 if mark_price > 0 else 0
     mid_diff_style = "green" if abs(mid_diff_bps) < 3 else ("yellow" if abs(mid_diff_bps) < 6 else "red")
-
+    
     # Spread color
     if spread_bps < 5:
         spread_style = "green"
@@ -1044,7 +1044,7 @@ async def main():
                     total_size = bid_total_size + ask_total_size
                     mid_price = (bid_weighted_sum + ask_weighted_sum) / total_size if total_size > 0 else (best_bid + best_ask) / 2
                     mid_diff_bps = abs((mid_price - mark_price) / mark_price * 10000) if mark_price > 0 else 0
-
+                    
                     # Reference price for order calculation (mid or mark based on config)
                     ref_price = mid_price if USE_MID_AS_MARK else mark_price
 
@@ -1144,6 +1144,8 @@ async def main():
                     effective_drift = (drift_bps + mid_diff_bps) if USE_MID_DRIFT else drift_bps
                     # Wait for orders if mark-mid diff is too large (only when MARK_MID_DIFF_LIMIT > 0)
                     mid_unstable = MARK_MID_DIFF_LIMIT > 0 and mid_diff_bps > MARK_MID_DIFF_LIMIT
+
+                    
 
                     # Record mid unstable time and check cooldown
                     if mid_unstable:
@@ -1330,7 +1332,7 @@ async def main():
         if is_live:
             console.print("Cancelling all orders...")
             try:
-                await order_mgr.cancel_all(reason="shutdown")
+                await order_mgr.cancel_all(reason="shutdown",skip_rest=False)
                 console.print("[green]All orders cancelled.[/green]")
             except Exception as e:
                 console.print(f"[red]Failed to cancel orders: {e}[/red]")
