@@ -33,6 +33,7 @@ MAX_SIZE_BTC = 2.0      # Max order size (None = unlimited)
 # Stability Settings
 MAX_HISTORY = 1000              # Max order history to keep
 MAX_CONSECUTIVE_ERRORS = 10     # Max consecutive errors allowed
+MIN_TOTAL_COLLATERAL = 0        # Flatten and stop at or below this Total (0 = disabled)
 
 # Auto Position Close
 AUTO_CLOSE_POSITION = True      # True: auto close position and resume MM

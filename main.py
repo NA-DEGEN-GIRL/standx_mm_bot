@@ -14,6 +14,7 @@ import os
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 import asyncio
+import signal
 import time
 import uuid
 import logging
@@ -36,7 +37,7 @@ from config import (
     SPREAD_BPS, DRIFT_THRESHOLD, USE_MID_AS_MARK, MID_PRICE_DEPTH, USE_MID_DRIFT, MARK_MID_DIFF_LIMIT, MID_UNSTABLE_COOLDOWN, SPREAD_UNSTABLE_LIMIT, SPREAD_UNSTABLE_COOLDOWN,
     MIN_WAIT_SEC, REFRESH_INTERVAL,
     SIZE_UNIT, LEVERAGE, MAX_SIZE_BTC,
-    MAX_HISTORY, MAX_CONSECUTIVE_ERRORS,
+    MAX_HISTORY, MAX_CONSECUTIVE_ERRORS, MIN_TOTAL_COLLATERAL,
     AUTO_CLOSE_POSITION,
     CLOSE_METHOD, CLOSE_AGGRESSIVE_BPS, CLOSE_WAIT_SEC,
     CLOSE_MIN_SIZE_MARKET, CLOSE_MAX_ITERATIONS,
@@ -297,6 +298,208 @@ class LiveOrderManager:
             self._cached_orders.clear()
             return 0
 
+    async def _get_open_orders_rest(
+        self,
+        max_attempts: int = 3,
+        retry_delay: float = 0.5,
+    ) -> List[Dict[str, Any]]:
+        """Fetch the current server state instead of the market WS cache."""
+        if max_attempts < 1:
+            raise ValueError("max_attempts must be at least 1")
+
+        last_error = None
+        for attempt in range(1, max_attempts + 1):
+            has_prefer_ws = hasattr(self.exchange, "_prefer_ws")
+            prefer_ws = self.exchange._prefer_ws if has_prefer_ws else None
+            if has_prefer_ws:
+                self.exchange._prefer_ws = False
+
+            try:
+                orders = await self.exchange.get_open_orders(self.symbol)
+                if not isinstance(orders, list):
+                    raise RuntimeError(
+                        f"Unexpected open orders response type: "
+                        f"{type(orders).__name__}"
+                    )
+                return orders
+            except Exception as e:
+                last_error = e
+            finally:
+                if has_prefer_ws:
+                    self.exchange._prefer_ws = prefer_ws
+
+            if attempt < max_attempts:
+                warning = (
+                    f"Open orders REST query failed "
+                    f"({attempt}/{max_attempts}): {last_error}"
+                )
+                log_message(f"SHUTDOWN CANCEL WARNING | {warning}")
+                console.print(f"[yellow]{warning}[/yellow]")
+                await asyncio.sleep(retry_delay)
+
+        raise RuntimeError(
+            f"Failed to query open orders after {max_attempts} attempts"
+        ) from last_error
+
+    async def _cancel_orders_rest(
+        self,
+        orders: List[Dict[str, Any]],
+    ) -> List[Tuple[str, Any]]:
+        """Submit the shutdown cancellations through the REST batch endpoint."""
+        order_ids = []
+        client_order_ids = []
+        for order in orders:
+            order_id = order.get("id")
+            client_order_id = order.get("cl_ord_id") or order.get("client_order_id")
+            if order_id is not None:
+                order_ids.append(order_id)
+            elif client_order_id:
+                client_order_ids.append(client_order_id)
+            else:
+                raise RuntimeError("Open order has no id or cl_ord_id")
+
+        if not order_ids and not client_order_ids:
+            return []
+
+        results = []
+        if order_ids:
+            id_orders = [
+                order for order in orders if order.get("id") is not None
+            ]
+            try:
+                result = await self.exchange.cancel_orders(
+                    self.symbol,
+                    open_orders=id_orders,
+                )
+            except Exception as e:
+                result = e
+            results.append(("order_id_list", result))
+
+        if client_order_ids:
+            has_prefer_order_ws = hasattr(self.exchange, "_prefer_order_ws")
+            prefer_order_ws = (
+                self.exchange._prefer_order_ws if has_prefer_order_ws else None
+            )
+            if has_prefer_order_ws:
+                self.exchange._prefer_order_ws = False
+
+            try:
+                for index, client_order_id in enumerate(client_order_ids):
+                    try:
+                        result = await self.exchange.cancel_order(
+                            client_order_id=client_order_id,
+                            skip_rest=False,
+                        )
+                    except Exception as e:
+                        result = e
+                    results.append((f"cl_ord_id:{client_order_id}", result))
+                    if index < len(client_order_ids) - 1:
+                        await asyncio.sleep(0.1)
+            finally:
+                if has_prefer_order_ws:
+                    self.exchange._prefer_order_ws = prefer_order_ws
+
+        return results
+
+    async def cancel_all_on_shutdown(
+        self,
+        max_attempts: int = 3,
+        empty_confirmations: int = 3,
+        verify_delay: float = 1.0,
+    ) -> int:
+        """Cancel and verify every open order for this symbol during shutdown."""
+        if max_attempts < 1:
+            raise ValueError("max_attempts must be at least 1")
+        if empty_confirmations < 1:
+            raise ValueError("empty_confirmations must be at least 1")
+
+        attempted_order_ids = set()
+        empty_streak = 0
+        cancel_attempt = 0
+
+        while empty_streak < empty_confirmations:
+            open_orders = await self._get_open_orders_rest()
+            if not open_orders:
+                empty_streak += 1
+            else:
+                if cancel_attempt >= max_attempts:
+                    remaining_ids = [
+                        order.get("id")
+                        if order.get("id") is not None
+                        else order.get("cl_ord_id") or order.get("client_order_id")
+                        for order in open_orders
+                    ]
+                    raise RuntimeError(
+                        f"{len(open_orders)} order(s) still open after shutdown "
+                        f"cancel: {remaining_ids}"
+                    )
+
+                empty_streak = 0
+                cancel_attempt += 1
+                for order in open_orders:
+                    order_id = order.get("id")
+                    client_order_id = (
+                        order.get("cl_ord_id") or order.get("client_order_id")
+                    )
+                    label = (
+                        f"id:{order_id}"
+                        if order_id is not None
+                        else f"cl_ord_id:{client_order_id}"
+                    )
+                    attempted_order_ids.add(label)
+
+                console.print(
+                    f"[yellow]Shutdown cancel attempt "
+                    f"{cancel_attempt}/{max_attempts}: "
+                    f"{len(open_orders)} open order(s)[/yellow]"
+                )
+                results = await self._cancel_orders_rest(open_orders)
+                failures = []
+                for target, result in results:
+                    if isinstance(result, BaseException):
+                        failures.append(f"{target}: {result}")
+                    elif result is None:
+                        failures.append(f"{target}: empty response")
+                    elif isinstance(result, dict):
+                        response = result.get("result")
+                        if (
+                            result.get("code", 0) != 0
+                            or (
+                                "result" in result
+                                and (
+                                    response is None
+                                    or (
+                                        isinstance(response, dict)
+                                        and response.get("code", 0) != 0
+                                    )
+                                )
+                            )
+                        ):
+                            failures.append(f"{target}: {result}")
+
+                if failures:
+                    failure_message = " | ".join(failures)
+                    log_message(f"SHUTDOWN CANCEL WARNING | {failure_message}")
+                    console.print(
+                        f"[yellow]Cancel warning: {failure_message}[/yellow]"
+                    )
+
+            if empty_streak < empty_confirmations:
+                await asyncio.sleep(verify_delay)
+
+        count = len(attempted_order_ids)
+        self.total_cancelled += count
+        if count > 0:
+            self._append_history({
+                "action": "CANCEL_ALL",
+                "count": count,
+                "reason": "shutdown",
+                "time": datetime.now(),
+            })
+        self.reference_prices.clear()
+        self._cached_orders.clear()
+        return count
+
     async def fetch_orders(self) -> None:
         """Fetch orders from server and update cache"""
         try:
@@ -505,6 +708,15 @@ async def close_position_strategic(
 
     # Limit order close loop (aggressive or chase)
     while remaining_size > 0:
+        if _keyboard_interrupted:
+            elapsed = time.time() - start_time
+            return (
+                False,
+                elapsed,
+                iterations,
+                f"{method.upper()} close interrupted for shutdown",
+            )
+
         iterations += 1
 
         # Max iterations exceeded - force market close
@@ -586,6 +798,15 @@ async def close_position_strategic(
                 elapsed = time.time() - start_time
                 return (True, elapsed, iterations, f"CHASE close - no orderbook, market fallback ({elapsed:.1f}s)")
 
+        if _keyboard_interrupted:
+            elapsed = time.time() - start_time
+            return (
+                False,
+                elapsed,
+                iterations,
+                f"{method.upper()} close interrupted for shutdown",
+            )
+
         # Create limit order
         cl_ord_id = f"CLOSE-{uuid.uuid4().hex[:8].upper()}"
         file_logger.info(f"  → CLOSE iter {iterations}: {close_side.upper()} {remaining_size:.6f} @ {limit_price:,.2f} ({method})")
@@ -614,6 +835,8 @@ async def close_position_strategic(
 
         while (time.time() - poll_start) < wait_sec:
             await asyncio.sleep(poll_interval)
+            if _keyboard_interrupted:
+                break
 
             # Check position
             new_position = await exchange.get_position(symbol)
@@ -633,7 +856,7 @@ async def close_position_strategic(
                 filled = True
 
         # Timeout with unfilled - cancel and retry
-        if not filled:
+        if not filled and not _keyboard_interrupted:
             remaining_size = abs(float((await exchange.get_position(symbol) or {}).get("size", 0)))
             if remaining_size > 0:
                 file_logger.info(f"  → CLOSE iter {iterations}: timeout, cancelling and retry (remaining: {remaining_size:.6f})")
@@ -646,6 +869,53 @@ async def close_position_strategic(
 
     elapsed = time.time() - start_time
     return (True, elapsed, iterations, f"{method.upper()} close complete ({elapsed:.1f}s, {iterations} iter)")
+
+
+async def flatten_position_for_safety_stop(
+    exchange,
+    symbol: str,
+    max_close_attempts: int = 3,
+    flat_confirmations: int = 2,
+    verify_delay: float = 0.5,
+) -> int:
+    """Market-close and REST-verify the position before a safety stop."""
+    close_attempts = 0
+    flat_streak = 0
+
+    while flat_streak < flat_confirmations:
+        position = await exchange.get_position_rest(symbol)
+        position_size = abs(float((position or {}).get("size", 0)))
+        if position_size == 0:
+            flat_streak += 1
+        else:
+            if close_attempts >= max_close_attempts:
+                raise RuntimeError(
+                    f"Position still open after {max_close_attempts} safety close "
+                    f"attempts: {position_size}"
+                )
+
+            flat_streak = 0
+            close_attempts += 1
+            side = position.get("side", "unknown").upper()
+            message = (
+                f"SAFETY CLOSE {close_attempts}/{max_close_attempts} | "
+                f"{side} {position_size}"
+            )
+            log_message(message)
+            console.print(f"[red]{message}[/red]")
+
+            result = await exchange.close_position(symbol, position)
+            if result is None or (
+                isinstance(result, dict) and result.get("code", 0) != 0
+            ):
+                warning = f"Safety close response: {result}"
+                log_message(f"LOW TOTAL COLLATERAL WARNING | {warning}")
+                console.print(f"[yellow]{warning}[/yellow]")
+
+        if flat_streak < flat_confirmations:
+            await asyncio.sleep(verify_delay)
+
+    return close_attempts
 
 
 # ==================== Dashboard Output (Rich) ====================
@@ -863,6 +1133,8 @@ def build_dashboard(
 # ==================== Main Logic ====================
 
 async def main():
+    global _keyboard_interrupted
+
     is_live = MODE == "LIVE"
     mode_str = "[red]LIVE[/red]" if is_live else "[cyan]TEST[/cyan]"
 
@@ -889,8 +1161,6 @@ async def main():
                 console.print("[yellow]Aborted.[/yellow]")
                 return
 
-
-
     # Exchange initialization
     console.print("Initializing exchange...")
     exchange = await create_exchange(EXCHANGE, STANDX_KEY)
@@ -911,6 +1181,30 @@ async def main():
         console.print("[cyan]Using SIMULATED order manager[/cyan]")
 
     last_action = ""
+    low_total_shutdown = False
+
+    # Request a graceful stop without cancelling an in-flight order operation.
+    loop = asyncio.get_running_loop()
+    previous_sigint_handler = signal.getsignal(signal.SIGINT)
+    sigint_handler_installed = False
+
+    def show_keyboard_shutdown() -> None:
+        console.print("\n[yellow]Shutting down (keyboard interrupt)...[/yellow]")
+
+    def handle_sigint(_signum, _frame) -> None:
+        global _keyboard_interrupted
+
+        if _keyboard_interrupted:
+            return
+        _keyboard_interrupted = True
+        loop.call_soon_threadsafe(show_keyboard_shutdown)
+
+    try:
+        signal.signal(signal.SIGINT, handle_sigint)
+        sigint_handler_installed = True
+    except (OSError, ValueError):
+        # The normal KeyboardInterrupt path remains as a fallback.
+        pass
 
     try:
         # Start WS subscriptions
@@ -961,10 +1255,17 @@ async def main():
         with Live(console=console, refresh_per_second=10, transient=True) as live:
             while True:
                 try:
+                    if _keyboard_interrupted and not low_total_shutdown:
+                        break
+
                     current_time = time.time()
 
                     # Auto restart check (time-based)
-                    if RESTART_INTERVAL > 0 and (current_time - start_time) >= RESTART_INTERVAL:
+                    if (
+                        not low_total_shutdown
+                        and RESTART_INTERVAL > 0
+                        and (current_time - start_time) >= RESTART_INTERVAL
+                    ):
                         log_message(f"AUTO RESTART | Interval: {RESTART_INTERVAL}s")
                         console.print(f"\n[yellow]Restarting after {RESTART_INTERVAL}s...[/yellow]")
                         if is_live:
@@ -973,10 +1274,12 @@ async def main():
                             console.print(f"[green]All orders cancelled before restart...{RESTART_DELAY}s remains.[/green]")
                             await asyncio.sleep(RESTART_DELAY)
                         file_logger.info(f"AUTO RESTART | Interval: {RESTART_INTERVAL}s")
+                        if _keyboard_interrupted:
+                            break
                         os.execv(sys.executable, [sys.executable] + sys.argv)
 
                     # WS fallback check (force restart if too many REST fallbacks)
-                    if MAX_WS_FALLBACK > 0:
+                    if not low_total_shutdown and MAX_WS_FALLBACK > 0:
                         fallback_stats = exchange.get_fallback_stats()
                         ws_total = fallback_stats.get("ws_client", {}).get("total", 0)
                         order_ws_total = fallback_stats.get("order_ws_client", {}).get("total", 0)
@@ -990,14 +1293,73 @@ async def main():
                                 console.print(f"[green]All orders cancelled before restart...{RESTART_DELAY}s remains.[/green]")
                                 await asyncio.sleep(RESTART_DELAY)
                             file_logger.info(f"FORCE RESTART | WS fallback exceeded (ws: {ws_total}, order_ws: {order_ws_total})")
+                            if _keyboard_interrupted:
+                                break
                             os.execv(sys.executable, [sys.executable] + sys.argv)
 
                     # Collateral refresh (on start or after close)
                     if need_collateral_update:
                         need_collateral_update = False
                         collateral = await exchange.get_collateral()
-                        available_collateral = float(collateral.get("available_collateral", 0))
-                        total_collateral = float(collateral.get("total_collateral", 0))
+                        available_collateral = float(
+                            collateral.get("available_collateral", 0)
+                        )
+                        total_collateral = float(
+                            collateral.get("total_collateral", 0)
+                        )
+
+                        if (
+                            is_live
+                            and MIN_TOTAL_COLLATERAL > 0
+                            and total_collateral <= MIN_TOTAL_COLLATERAL
+                            and not low_total_shutdown
+                        ):
+                            low_total_shutdown = True
+                            message = (
+                                f"LOW TOTAL COLLATERAL | total: "
+                                f"${total_collateral:.2f} <= "
+                                f"limit: ${MIN_TOTAL_COLLATERAL:.2f}"
+                            )
+                            last_action = message
+                            log_message(message)
+                            file_logger.info(message)
+                            console.print(f"\n[bold red]{message}[/bold red]")
+
+                    if low_total_shutdown:
+                        try:
+                            cancel_requests = 0
+                            close_attempts = 0
+                            stable_cycles = 0
+                            while stable_cycles < 2:
+                                cancelled = await order_mgr.cancel_all_on_shutdown()
+                                closed = await flatten_position_for_safety_stop(
+                                    exchange,
+                                    symbol,
+                                )
+                                cancel_requests += cancelled
+                                close_attempts += closed
+                                if cancelled == 0 and closed == 0:
+                                    stable_cycles += 1
+                                else:
+                                    stable_cycles = 0
+                        except Exception as e:
+                            message = f"LOW TOTAL COLLATERAL RETRY | {e}"
+                            log_message(message)
+                            file_logger.info(message)
+                            console.print(f"[red]{message}[/red]")
+                            await asyncio.sleep(1.0)
+                            continue
+
+                        message = (
+                            f"LOW TOTAL COLLATERAL STOPPED | total: "
+                            f"${total_collateral:.2f} | cancel requests: "
+                            f"{cancel_requests} | position close requests: "
+                            f"{close_attempts}"
+                        )
+                        log_message(message)
+                        file_logger.info(message)
+                        console.print(f"[bold red]{message}[/bold red]")
+                        break
 
                     # ========== 0. Fetch all data in parallel ==========
                     if is_live:
@@ -1013,6 +1375,9 @@ async def main():
                             exchange.get_orderbook(symbol),
                             exchange.get_position(symbol),
                         )
+
+                    if _keyboard_interrupted:
+                        break
 
                     # ========== 1. Process fetched data ==========
                     mark_price = float(mark_price_str)
@@ -1056,6 +1421,8 @@ async def main():
                         # 1. Cancel all orders
                         await order_mgr.cancel_all("Position detected - auto close")
                         orders_exist_since = None
+                        if _keyboard_interrupted:
+                            break
 
                         # 2. Collect position info
                         pos_side = position.get("side", "").upper()
@@ -1080,6 +1447,9 @@ async def main():
                                 min_size_market=CLOSE_MIN_SIZE_MARKET,
                                 max_iterations=CLOSE_MAX_ITERATIONS,
                             )
+
+                            if _keyboard_interrupted:
+                                break
 
                             # Update statistics
                             position_stats["total_closes"] += 1
@@ -1244,7 +1614,16 @@ async def main():
                         continue  # Place new order with fresh price in next iteration
 
                     # No orders and maker conditions met - place new orders (only when stable + cooldown done)
-                    elif not has_orders and buy_is_maker and sell_is_maker and not mid_unstable and not mid_cooldown_active and not spread_unstable and not spread_cooldown_active:
+                    elif (
+                        not _keyboard_interrupted
+                        and not has_orders
+                        and buy_is_maker
+                        and sell_is_maker
+                        and not mid_unstable
+                        and not mid_cooldown_active
+                        and not spread_unstable
+                        and not spread_cooldown_active
+                    ):
                         # Apply size reduction from incomplete order streaks
                         effective_size = round(order_size - size_reduction, 8)
                         if effective_size < SIZE_UNIT:
@@ -1324,50 +1703,71 @@ async def main():
                     await asyncio.sleep(backoff)
 
     except KeyboardInterrupt:
-        global _keyboard_interrupted
         _keyboard_interrupted = True
         console.print("\n[yellow]Shutting down (keyboard interrupt)...[/yellow]")
     finally:
-        # Cancel all orders before exit (all symbol orders regardless of cache)
-        if is_live:
-            console.print("Cancelling all orders...")
+        try:
+            # Verify server state before every normal process exit.
+            if is_live:
+                console.print("Cancelling all orders...")
+                try:
+                    cancelled_count = await order_mgr.cancel_all_on_shutdown()
+                    log_message(
+                        f"SHUTDOWN CANCEL VERIFIED | "
+                        f"requests: {cancelled_count}"
+                    )
+                    console.print(
+                        f"[green]No open orders remain "
+                        f"({cancelled_count} cancellation request(s)).[/green]"
+                    )
+                except Exception as e:
+                    log_message(f"SHUTDOWN CANCEL FAILED | {e}")
+                    console.print(f"[red]Failed to cancel orders: {e}[/red]")
+
+            console.print("\n[bold]Final Statistics:[/bold]")
+            console.print(f"  Total Orders Placed:    {order_mgr.total_placed}")
+            console.print(f"  Total Orders Cancelled: {order_mgr.total_cancelled}")
+            console.print(f"  Total Rebalances:       {order_mgr.total_rebalanced}")
+            console.print(f"  Position Closes:        {position_stats['total_closes']}")
+            console.print(f"  Total Volume Closed:    {position_stats['total_volume']:.6f} BTC")
+            pnl_color = "green" if position_stats['total_pnl'] >= 0 else "red"
+            console.print(f"  Total Realized PnL:     [{pnl_color}]${position_stats['total_pnl']:+.2f}[/{pnl_color}]")
+            if position_stats['total_close_time'] > 0:
+                avg_close_time = position_stats['total_close_time'] / max(1, position_stats['total_closes'])
+                console.print(f"  Total Close Time:       {position_stats['total_close_time']:.1f}s (avg: {avg_close_time:.1f}s)")
+
+            console.print("Closing exchange connection...")
             try:
-                await order_mgr.cancel_all(reason="shutdown",skip_rest=False)
-                console.print("[green]All orders cancelled.[/green]")
+                await exchange.close()
+                console.print("Done.")
             except Exception as e:
-                console.print(f"[red]Failed to cancel orders: {e}[/red]")
+                log_message(f"EXCHANGE CLOSE FAILED | {e}")
+                console.print(f"[red]Failed to close exchange connection: {e}[/red]")
+            log_message("Bot stopped")
 
-        console.print("\n[bold]Final Statistics:[/bold]")
-        console.print(f"  Total Orders Placed:    {order_mgr.total_placed}")
-        console.print(f"  Total Orders Cancelled: {order_mgr.total_cancelled}")
-        console.print(f"  Total Rebalances:       {order_mgr.total_rebalanced}")
-        console.print(f"  Position Closes:        {position_stats['total_closes']}")
-        console.print(f"  Total Volume Closed:    {position_stats['total_volume']:.6f} BTC")
-        pnl_color = "green" if position_stats['total_pnl'] >= 0 else "red"
-        console.print(f"  Total Realized PnL:     [{pnl_color}]${position_stats['total_pnl']:+.2f}[/{pnl_color}]")
-        if position_stats['total_close_time'] > 0:
-            avg_close_time = position_stats['total_close_time'] / max(1, position_stats['total_closes'])
-            console.print(f"  Total Close Time:       {position_stats['total_close_time']:.1f}s (avg: {avg_close_time:.1f}s)")
-
-        console.print("Closing exchange connection...")
-        await exchange.close()
-        console.print("Done.")
-        log_message("Bot stopped")
-
-        # Close console log file
-        _console_log_file.close()
+            # Close console log file
+            _console_log_file.close()
+        finally:
+            if sigint_handler_installed:
+                signal.signal(signal.SIGINT, previous_sigint_handler)
 
         # Auto-restart if not keyboard interrupted (server error recovery)
-        if not _keyboard_interrupted:
+        if not _keyboard_interrupted and not low_total_shutdown:
             restart_delay = RESTART_DELAY if RESTART_DELAY > 0 else 5.0
             log_message(f"AUTO RESTART | Unexpected exit, restarting in {restart_delay}s...")
             console.print(f"\n[yellow]Unexpected exit detected. Auto-restarting in {restart_delay}s...[/yellow]")
             console.print("[dim]Press Ctrl+C again to cancel restart[/dim]")
             try:
+                if sigint_handler_installed:
+                    # time.sleep needs a handler that raises immediately.
+                    signal.signal(signal.SIGINT, signal.default_int_handler)
                 time.sleep(restart_delay)
                 os.execv(sys.executable, [sys.executable] + sys.argv)
             except KeyboardInterrupt:
                 console.print("\n[yellow]Restart cancelled by user.[/yellow]")
+            finally:
+                if sigint_handler_installed:
+                    signal.signal(signal.SIGINT, previous_sigint_handler)
 
 
 if __name__ == "__main__":
